@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+credentials/
+
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs / temporary files
+*.log
+tmp/
+temp/
+.cache/
+
+# Generated/intermediate data
+data/raw/*
+!data/raw/.gitkeep
+
+data/staged/*
+!data/staged/.gitkeep
+
+# Canonical data is ignored by default until its publication policy is defined.
+data/canonical/*
+!data/canonical/.gitkeep
+
+# Generated models and outputs
+models/client/*
+!models/client/.gitkeep
+
+outputs/dashboards/*
+!outputs/dashboards/.gitkeep
+
+outputs/market_updates/*
+!outputs/market_updates/.gitkeep
+
+outputs/client_materials/*
+!outputs/client_materials/.gitkeep
+
+# Excel temporary/lock files
+~$*.xlsx
+~$*.xlsm
+
+# Build artifacts
+build/
+dist/
+*.egg-info/

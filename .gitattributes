@@ -1,0 +1,14 @@
+# Normalize text files to LF in the repository.
+* text=auto eol=lf
+
+# Binary analytical and presentation artifacts.
+*.xlsx binary
+*.xlsm binary
+*.xlsb binary
+*.pdf binary
+*.pptx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
