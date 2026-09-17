@@ -75,12 +75,12 @@ not only capital-markets size calculations.
 
 ## Instrument Currency Reconciliation
 
-Instrument monetary observations should agree with the latest known
+Instrument monetary observations should agree with the latest known populated
 `instrument.currency` observation at or before the monetary observation's
 as-of date.
 
-The initial control applies to governed instrument fields that require currency
-metadata.
+The control applies to governed instrument fields whose currency binding is
+`INSTRUMENT_CURRENCY`.
 
 Examples include:
 
@@ -88,25 +88,46 @@ Examples include:
 - `instrument.book_size`;
 - `instrument.offer_price_per_share`.
 
-If no instrument-currency observation exists at or before the relevant date,
-the consistency layer does not invent one and does not fail the observation.
+If no populated instrument-currency observation exists at or before the
+relevant date, the consistency layer does not invent one and does not fail the
+monetary observation.
 
-If the latest currency state is explicitly missing, the monetary observation is
-not compared against an older currency value.
+## Missingness Is Not Retraction
 
-## Same-Date Currency Ambiguity
+A missing-data observation records the state of available information.
 
-If the latest instrument-currency date contains multiple populated observations
-with conflicting values, the currency state is ambiguous and validation fails.
+It does not, by itself, invalidate or retract an earlier populated observation.
 
-If identical values are represented by multiple observations on that date, the
+For example:
+
+- EUR observed on 1 September;
+- currency pending verification on 2 September;
+- EUR-denominated issue size observed on 3 September.
+
+The latest known populated currency remains EUR.
+
+The 2 September missing observation remains part of the audit trail because it
+records what was or was not available at that point, but it does not behave as
+a tombstone.
+
+Similarly, a populated EUR observation and a missing currency observation on
+the same date are not inherently contradictory. One source or workflow may
+lack the value while another establishes it.
+
+If the platform later requires explicit retraction, invalidation, or
+supersession of a populated fact, that state must be represented by a dedicated
+governed mechanism. It must not be inferred from `MissingDataState`.
+
+## Same-Date Populated Conflicts
+
+If the latest populated instrument-currency date contains multiple populated
+observations with different values, the currency state is contradictory and
+validation fails.
+
+If multiple populated observations carry the same value on that date, the
 economic conclusion is not ambiguous.
 
-If both populated and explicitly missing observations exist at the same latest
-date, the state is also ambiguous.
-
-These situations should ultimately feed the platform's exception-control
-workflow.
+Missing observations on the same date do not change either rule.
 
 ## Calculated Transaction Aggregate Size
 

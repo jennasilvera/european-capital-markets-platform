@@ -115,7 +115,7 @@ def _validate_instrument_currency_consistency(
     ]
 
     for observation in monetary_observations:
-        currency_observation = _latest_field_observation(
+        currency_observation = _latest_populated_field_observation(
             observations=observations,
             subject_type=EntityType.INSTRUMENT,
             subject_id=observation.subject_id,
@@ -133,7 +133,7 @@ def _validate_instrument_currency_consistency(
             )
 
 
-def _latest_field_observation(
+def _latest_populated_field_observation(
     *,
     observations: tuple[ObservationRecord, ...],
     subject_type: EntityType,
@@ -141,6 +141,8 @@ def _latest_field_observation(
     field_name: str,
     as_of_date: date,
 ) -> ObservationRecord | None:
+    """Return the latest known populated observation for one field."""
+
     candidates = [
         observation
         for observation in observations
@@ -148,6 +150,7 @@ def _latest_field_observation(
         and observation.subject_id == subject_id
         and observation.field_name == field_name
         and observation.as_of_date <= as_of_date
+        and observation.missing_state is None
     ]
 
     if not candidates:
@@ -164,38 +167,24 @@ def _latest_field_observation(
         if observation.as_of_date == latest_date
     ]
 
-    populated = [
-        observation
-        for observation in latest
-        if observation.missing_state is None
-    ]
-    missing = [
-        observation
-        for observation in latest
-        if observation.missing_state is not None
-    ]
-
-    if populated and missing:
-        raise ValueError(
-            "Ambiguous latest field state contains both populated "
-            "and missing observations."
-        )
-
-    if missing:
-        return None
-
     values = {
         observation.value
-        for observation in populated
+        for observation in latest
     }
 
     if len(values) > 1:
         raise ValueError(
-            "Conflicting latest observations exist for the same "
+            "Conflicting latest populated observations exist for the same "
             "subject, field, and as-of date."
         )
 
-    return populated[0]
+    # Multiple observations carrying the same economic value are not
+    # economically ambiguous. Select deterministically for callers that
+    # require the source record rather than only its value.
+    return min(
+        latest,
+        key=lambda observation: observation.observation_id,
+    )
 
 
 def _validate_calculated_transaction_aggregates(

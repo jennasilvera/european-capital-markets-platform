@@ -184,14 +184,17 @@ def test_conflicting_latest_same_day_currency_is_rejected() -> None:
         ),
     )
 
-    with pytest.raises(ValueError, match="Conflicting latest observations"):
+    with pytest.raises(
+        ValueError,
+        match="Conflicting latest populated observations",
+    ):
         validate_cross_observation_consistency(
             instruments=(_instrument(),),
             observations=observations,
         )
 
 
-def test_latest_missing_currency_state_does_not_use_stale_value() -> None:
+def test_later_populated_currency_supersedes_earlier_value_after_missing() -> None:
     missing_currency = ObservationRecord(
         observation_id="OBS000000002",
         subject_type=EntityType.INSTRUMENT,
@@ -209,10 +212,15 @@ def test_latest_missing_currency_state_does_not_use_stale_value() -> None:
             as_of_date=date(2026, 9, 1),
         ),
         missing_currency,
+        _currency(
+            observation_id="OBS000000004",
+            value="GBP",
+            as_of_date=date(2026, 9, 3),
+        ),
         _issue_size(
             observation_id="OBS000000003",
             currency="GBP",
-            as_of_date=date(2026, 9, 3),
+            as_of_date=date(2026, 9, 4),
         ),
     )
 
@@ -474,7 +482,7 @@ def test_identical_latest_same_day_currency_values_are_valid() -> None:
     )
 
 
-def test_populated_and_missing_latest_same_day_currency_is_rejected() -> None:
+def test_populated_and_missing_same_day_preserves_known_currency() -> None:
     missing_currency = ObservationRecord(
         observation_id="OBS000000002",
         subject_type=EntityType.INSTRUMENT,
@@ -499,7 +507,72 @@ def test_populated_and_missing_latest_same_day_currency_is_rejected() -> None:
         ),
     )
 
-    with pytest.raises(ValueError, match="Ambiguous latest field state"):
+    validate_cross_observation_consistency(
+        instruments=(_instrument(),),
+        observations=observations,
+    )
+
+
+def test_later_missing_currency_does_not_retract_known_currency() -> None:
+    missing_currency = ObservationRecord(
+        observation_id="OBS000000002",
+        subject_type=EntityType.INSTRUMENT,
+        subject_id="INS000000001",
+        field_name="instrument.currency",
+        as_of_date=date(2026, 9, 2),
+        verification_state=VerificationState.PENDING,
+        missing_state=MissingDataState.PENDING_VERIFICATION,
+    )
+
+    observations = (
+        _currency(
+            observation_id="OBS000000001",
+            value="EUR",
+            as_of_date=date(2026, 9, 1),
+        ),
+        missing_currency,
+        _issue_size(
+            observation_id="OBS000000003",
+            currency="EUR",
+            as_of_date=date(2026, 9, 3),
+        ),
+    )
+
+    validate_cross_observation_consistency(
+        instruments=(_instrument(),),
+        observations=observations,
+    )
+
+
+def test_later_missing_currency_does_not_hide_known_conflict() -> None:
+    missing_currency = ObservationRecord(
+        observation_id="OBS000000002",
+        subject_type=EntityType.INSTRUMENT,
+        subject_id="INS000000001",
+        field_name="instrument.currency",
+        as_of_date=date(2026, 9, 2),
+        verification_state=VerificationState.PENDING,
+        missing_state=MissingDataState.PENDING_VERIFICATION,
+    )
+
+    observations = (
+        _currency(
+            observation_id="OBS000000001",
+            value="EUR",
+            as_of_date=date(2026, 9, 1),
+        ),
+        missing_currency,
+        _issue_size(
+            observation_id="OBS000000003",
+            currency="GBP",
+            as_of_date=date(2026, 9, 3),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="latest known instrument currency",
+    ):
         validate_cross_observation_consistency(
             instruments=(_instrument(),),
             observations=observations,

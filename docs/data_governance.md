@@ -228,6 +228,33 @@ The field may be populated after verification is completed.
 NULL is a persistence representation, not a semantic analytical missing-data
 state.
 
+### Missingness versus supersession
+
+A missing-data observation describes information availability at a particular
+analytical point.
+
+It does not automatically supersede, retract, or invalidate an earlier
+populated observation for the same subject and field.
+
+Accordingly:
+
+- `NOT_DISCLOSED` means the reviewed source did not disclose the value;
+- `UNAVAILABLE` means the value could not be obtained;
+- `PENDING_VERIFICATION` means verification is incomplete;
+- `NOT_APPLICABLE` means the missing-state assertion itself is analytically
+  relevant for that observation.
+
+None of these states is a general-purpose tombstone.
+
+Where a business fact genuinely changes, a later populated observation may
+establish the new value.
+
+Where an earlier populated observation must be explicitly retracted or
+invalidated, the platform should introduce a dedicated governed
+supersession/retraction mechanism rather than infer that meaning from
+missingness.
+
+
 Optional storage fields may be NULL where appropriate, but an analytical
 observation representing missing information must use the applicable explicit
 missing-data state.
