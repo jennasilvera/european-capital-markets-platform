@@ -291,3 +291,22 @@ A later persistence layer should preserve:
 - unit rules;
 - currency rules;
 - field-definition versioning where methodology changes require it.
+
+## Currency Binding
+
+Currency presence and currency meaning are separate controls.
+
+A governed field may use one of three currency bindings:
+
+- `NONE`: the field does not carry currency metadata;
+- `INSTRUMENT_CURRENCY`: an instrument-scoped monetary field must reconcile
+  with the instrument's canonical denomination or issuance currency;
+- `OBSERVATION_CURRENCY`: the observation explicitly states its own analytical
+  or reporting currency.
+
+`instrument.issue_size` uses `INSTRUMENT_CURRENCY`.
+
+`instrument.issue_size_converted` uses `OBSERVATION_CURRENCY`.
+
+The converted field therefore never changes the instrument's native currency
+identity and never replaces its native issue-size observation.

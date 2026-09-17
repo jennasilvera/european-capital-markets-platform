@@ -8,6 +8,9 @@ from european_capital_markets.domain.consistency import (
 )
 from european_capital_markets.domain.entities import InstrumentRecord
 from european_capital_markets.domain.lineage import ObservationRecord
+from european_capital_markets.domain.market_data import (
+    FXReferenceRateDefinitionRecord,
+)
 from european_capital_markets.domain.taxonomy import (
     EntityType,
     MissingDataState,
@@ -371,7 +374,7 @@ def test_aggregate_rejects_multiple_revisions_for_same_instrument() -> None:
         )
 
 
-def test_cross_currency_aggregate_defers_fx_arithmetic_validation() -> None:
+def test_cross_currency_aggregate_requires_converted_inputs() -> None:
     euro = _issue_size(
         observation_id="OBS000000002",
         instrument_id="INS000000001",
@@ -389,17 +392,21 @@ def test_cross_currency_aggregate_defers_fx_arithmetic_validation() -> None:
         currency="EUR",
     )
 
-    validate_cross_observation_consistency(
-        instruments=(
-            _instrument("INS000000001"),
-            _instrument("INS000000002"),
-        ),
-        observations=(
-            euro,
-            sterling,
-            aggregate,
-        ),
-    )
+    with pytest.raises(
+        ValueError,
+        match="instrument.issue_size_converted",
+    ):
+        validate_cross_observation_consistency(
+            instruments=(
+                _instrument("INS000000001"),
+                _instrument("INS000000002"),
+            ),
+            observations=(
+                euro,
+                sterling,
+                aggregate,
+            ),
+        )
 
 
 def test_non_calculated_aggregate_is_not_forced_to_equal_tranches() -> None:
@@ -521,5 +528,223 @@ def test_calculated_aggregate_rejects_missing_issue_size_input() -> None:
             observations=(
                 missing_issue_size,
                 aggregate,
+            ),
+        )
+
+
+def test_converted_issue_size_may_differ_from_instrument_currency() -> None:
+    native_currency = _currency(
+        observation_id="OBS000000001",
+        value="GBP",
+        as_of_date=date(2026, 9, 1),
+    )
+    native_size = _issue_size(
+        observation_id="OBS000000002",
+        value=Decimal("300000000"),
+        currency="GBP",
+        as_of_date=date(2026, 9, 2),
+    )
+    fx_rate = ObservationRecord(
+        observation_id="OBS000000003",
+        subject_type=EntityType.MARKET_SERIES,
+        subject_id="MKS000000001",
+        field_name="market_series.fx_rate",
+        as_of_date=date(2026, 9, 3),
+        verification_state=VerificationState.PENDING,
+        value=Decimal("0.75"),
+        value_class=ValueClass.ASSUMED,
+        derivation_ref="test://fx-rate",
+    )
+    converted = ObservationRecord(
+        observation_id="OBS000000004",
+        subject_type=EntityType.INSTRUMENT,
+        subject_id="INS000000001",
+        field_name="instrument.issue_size_converted",
+        as_of_date=date(2026, 9, 3),
+        verification_state=VerificationState.PENDING,
+        value=Decimal("400000000"),
+        value_class=ValueClass.CALCULATED,
+        currency="EUR",
+        input_observation_ids=(
+            "OBS000000002",
+            "OBS000000003",
+        ),
+        derivation_ref="methodology/fx-conversion-v1",
+    )
+
+    validate_cross_observation_consistency(
+        instruments=(_instrument(),),
+        observations=(
+            native_currency,
+            native_size,
+            fx_rate,
+            converted,
+        ),
+        fx_reference_rates=(
+            FXReferenceRateDefinitionRecord(
+                market_series_id="MKS000000001",
+                base_currency="EUR",
+                quote_currency="GBP",
+                convention_ref="market-data/fx/reference-rate-v1",
+            ),
+        ),
+    )
+
+
+def test_converted_tranche_can_reconcile_transaction_aggregate() -> None:
+    euro_native = _issue_size(
+        observation_id="OBS000000001",
+        instrument_id="INS000000001",
+        value=Decimal("500000000"),
+        currency="EUR",
+        as_of_date=date(2026, 9, 2),
+    )
+    sterling_native = _issue_size(
+        observation_id="OBS000000002",
+        instrument_id="INS000000002",
+        value=Decimal("300000000"),
+        currency="GBP",
+        as_of_date=date(2026, 9, 2),
+    )
+    fx_rate = ObservationRecord(
+        observation_id="OBS000000003",
+        subject_type=EntityType.MARKET_SERIES,
+        subject_id="MKS000000001",
+        field_name="market_series.fx_rate",
+        as_of_date=date(2026, 9, 3),
+        verification_state=VerificationState.PENDING,
+        value=Decimal("0.75"),
+        value_class=ValueClass.ASSUMED,
+        derivation_ref="test://fx-rate",
+    )
+    sterling_in_eur = ObservationRecord(
+        observation_id="OBS000000004",
+        subject_type=EntityType.INSTRUMENT,
+        subject_id="INS000000002",
+        field_name="instrument.issue_size_converted",
+        as_of_date=date(2026, 9, 3),
+        verification_state=VerificationState.PENDING,
+        value=Decimal("400000000"),
+        value_class=ValueClass.CALCULATED,
+        currency="EUR",
+        input_observation_ids=(
+            "OBS000000002",
+            "OBS000000003",
+        ),
+        derivation_ref="methodology/fx-conversion-v1",
+    )
+    aggregate = _calculated_aggregate(
+        value=Decimal("900000000"),
+        currency="EUR",
+        as_of_date=date(2026, 9, 3),
+        input_observation_ids=(
+            "OBS000000001",
+            "OBS000000004",
+        ),
+    )
+
+    validate_cross_observation_consistency(
+        instruments=(
+            _instrument(
+                instrument_id="INS000000001",
+            ),
+            _instrument(
+                instrument_id="INS000000002",
+            ),
+        ),
+        observations=(
+            euro_native,
+            sterling_native,
+            fx_rate,
+            sterling_in_eur,
+            aggregate,
+        ),
+        fx_reference_rates=(
+            FXReferenceRateDefinitionRecord(
+                market_series_id="MKS000000001",
+                base_currency="EUR",
+                quote_currency="GBP",
+                convention_ref="market-data/fx/reference-rate-v1",
+            ),
+        ),
+    )
+
+
+def test_converted_tranche_aggregate_mismatch_is_rejected() -> None:
+    euro_native = _issue_size(
+        observation_id="OBS000000001",
+        instrument_id="INS000000001",
+        value=Decimal("500000000"),
+        currency="EUR",
+        as_of_date=date(2026, 9, 2),
+    )
+    sterling_native = _issue_size(
+        observation_id="OBS000000002",
+        instrument_id="INS000000002",
+        value=Decimal("300000000"),
+        currency="GBP",
+        as_of_date=date(2026, 9, 2),
+    )
+    fx_rate = ObservationRecord(
+        observation_id="OBS000000003",
+        subject_type=EntityType.MARKET_SERIES,
+        subject_id="MKS000000001",
+        field_name="market_series.fx_rate",
+        as_of_date=date(2026, 9, 3),
+        verification_state=VerificationState.PENDING,
+        value=Decimal("0.75"),
+        value_class=ValueClass.ASSUMED,
+        derivation_ref="test://fx-rate",
+    )
+    sterling_in_eur = ObservationRecord(
+        observation_id="OBS000000004",
+        subject_type=EntityType.INSTRUMENT,
+        subject_id="INS000000002",
+        field_name="instrument.issue_size_converted",
+        as_of_date=date(2026, 9, 3),
+        verification_state=VerificationState.PENDING,
+        value=Decimal("400000000"),
+        value_class=ValueClass.CALCULATED,
+        currency="EUR",
+        input_observation_ids=(
+            "OBS000000002",
+            "OBS000000003",
+        ),
+        derivation_ref="methodology/fx-conversion-v1",
+    )
+    aggregate = _calculated_aggregate(
+        value=Decimal("899999999"),
+        currency="EUR",
+        as_of_date=date(2026, 9, 3),
+        input_observation_ids=(
+            "OBS000000001",
+            "OBS000000004",
+        ),
+    )
+
+    with pytest.raises(ValueError, match="does not equal"):
+        validate_cross_observation_consistency(
+            instruments=(
+                _instrument(
+                    instrument_id="INS000000001",
+                ),
+                _instrument(
+                    instrument_id="INS000000002",
+                ),
+            ),
+            observations=(
+                euro_native,
+                sterling_native,
+                fx_rate,
+                sterling_in_eur,
+                aggregate,
+            ),
+            fx_reference_rates=(
+                FXReferenceRateDefinitionRecord(
+                    market_series_id="MKS000000001",
+                    base_currency="EUR",
+                    quote_currency="GBP",
+                    convention_ref="market-data/fx/reference-rate-v1",
+                ),
             ),
         )

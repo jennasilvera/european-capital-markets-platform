@@ -4,14 +4,20 @@ from datetime import date
 from decimal import Decimal
 
 from european_capital_markets.domain.entities import InstrumentRecord
+from european_capital_markets.domain.fx_conversion import (
+    validate_fx_conversion_bundle,
+)
 from european_capital_markets.domain.lineage import ObservationRecord
+from european_capital_markets.domain.market_data import (
+    FXReferenceRateDefinitionRecord,
+)
 from european_capital_markets.domain.taxonomy import (
     EntityType,
     ValueClass,
 )
 from european_capital_markets.domain.terms import (
     FIELD_DEFINITION_BY_NAME,
-    MetadataRequirement,
+    CurrencyBinding,
     validate_term_observation,
 )
 
@@ -19,6 +25,10 @@ from european_capital_markets.domain.terms import (
 def validate_cross_observation_consistency(
     instruments: tuple[InstrumentRecord, ...],
     observations: tuple[ObservationRecord, ...],
+    fx_reference_rates: tuple[
+        FXReferenceRateDefinitionRecord,
+        ...,
+    ] = (),
 ) -> None:
     """Validate deterministic relationships across observations."""
 
@@ -35,6 +45,10 @@ def validate_cross_observation_consistency(
     _validate_input_dates(
         observations,
         observation_by_id,
+    )
+    validate_fx_conversion_bundle(
+        fx_reference_rates=fx_reference_rates,
+        observations=observations,
     )
     _validate_instrument_currency_consistency(
         observations,
@@ -95,8 +109,8 @@ def _validate_instrument_currency_consistency(
                 )
             )
             is not None
-            and definition.currency_requirement
-            is MetadataRequirement.REQUIRED
+            and definition.currency_binding
+            is CurrencyBinding.INSTRUMENT_CURRENCY
         )
     ]
 
@@ -211,11 +225,15 @@ def _validate_calculated_transaction_aggregates(
                 input_observation.subject_type
                 is not EntityType.INSTRUMENT
                 or input_observation.field_name
-                != "instrument.issue_size"
+                not in {
+                    "instrument.issue_size",
+                    "instrument.issue_size_converted",
+                }
             ):
                 raise ValueError(
-                    "Calculated transaction aggregate size may only "
-                    "use instrument.issue_size inputs."
+                    "Calculated transaction aggregate size may only use "
+                    "instrument.issue_size or "
+                    "instrument.issue_size_converted inputs."
                 )
 
             if input_observation.missing_state is not None:
@@ -256,20 +274,26 @@ def _validate_calculated_transaction_aggregates(
             for input_observation in inputs
         }
 
-        if input_currencies == {aggregate.currency}:
-            input_total = sum(
-                (
-                    input_observation.value
-                    for input_observation in inputs
-                ),
-                Decimal("0"),
+        if input_currencies != {aggregate.currency}:
+            raise ValueError(
+                "Calculated transaction aggregate inputs must all be "
+                "expressed in the aggregate currency. Foreign-currency "
+                "tranches require instrument.issue_size_converted inputs."
             )
 
-            if input_total != aggregate.value:
-                raise ValueError(
-                    "Calculated same-currency transaction aggregate "
-                    "does not equal its tranche-size inputs."
-                )
+        input_total = sum(
+            (
+                input_observation.value
+                for input_observation in inputs
+            ),
+            Decimal("0"),
+        )
+
+        if input_total != aggregate.value:
+            raise ValueError(
+                "Calculated transaction aggregate does not equal its "
+                "currency-normalized tranche-size inputs."
+            )
 
 
 def _index_unique[T](

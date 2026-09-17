@@ -12,6 +12,7 @@ from european_capital_markets.domain.taxonomy import (
 )
 from european_capital_markets.domain.terms import (
     FIELD_DEFINITIONS,
+    CurrencyBinding,
     MetadataRequirement,
     ObservationFieldDefinition,
     ObservationUnit,
@@ -383,3 +384,59 @@ def test_transaction_and_instrument_size_fields_are_distinct() -> None:
     assert aggregate.subject_type is EntityType.TRANSACTION
     assert tranche.subject_type is EntityType.INSTRUMENT
     assert aggregate.field_name != tranche.field_name
+
+
+def test_issue_size_uses_instrument_currency_binding() -> None:
+    definition = get_field_definition(
+        "instrument.issue_size"
+    )
+
+    assert (
+        definition.currency_binding
+        is CurrencyBinding.INSTRUMENT_CURRENCY
+    )
+
+
+def test_converted_issue_size_uses_observation_currency_binding() -> None:
+    definition = get_field_definition(
+        "instrument.issue_size_converted"
+    )
+
+    assert (
+        definition.currency_binding
+        is CurrencyBinding.OBSERVATION_CURRENCY
+    )
+
+
+def test_currency_bearing_field_requires_explicit_binding() -> None:
+    with pytest.raises(ValueError, match="explicit currency binding"):
+        ObservationFieldDefinition(
+            field_name="transaction.test_amount",
+            subject_type=EntityType.TRANSACTION,
+            value_type=ObservationValueType.DECIMAL,
+            description="Invalid unbound currency-bearing field.",
+            currency_requirement=MetadataRequirement.REQUIRED,
+        )
+
+
+def test_instrument_currency_binding_requires_instrument_scope() -> None:
+    with pytest.raises(ValueError, match="requires INSTRUMENT"):
+        ObservationFieldDefinition(
+            field_name="transaction.test_amount",
+            subject_type=EntityType.TRANSACTION,
+            value_type=ObservationValueType.DECIMAL,
+            description="Invalid instrument-bound transaction field.",
+            currency_requirement=MetadataRequirement.REQUIRED,
+            currency_binding=CurrencyBinding.INSTRUMENT_CURRENCY,
+        )
+
+
+def test_converted_issue_size_requires_target_currency() -> None:
+    observation = _observation(
+        field_name="instrument.issue_size_converted",
+        value=Decimal("550000000"),
+        currency=None,
+    )
+
+    with pytest.raises(ValueError, match="requires currency"):
+        validate_term_observation(observation)

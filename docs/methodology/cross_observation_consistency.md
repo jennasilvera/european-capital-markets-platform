@@ -147,24 +147,34 @@ as an analyst judgment or tolerance-based check.
 A multi-currency financing may legitimately have a calculated aggregate in one
 reporting currency.
 
-For example:
+The platform does not add unlike native currencies and no longer defers
+validation of such a calculation.
 
-- EUR tranche;
-- GBP tranche;
-- USD-equivalent aggregate.
+Every input to a calculated `transaction.aggregate_size` must already be
+expressed in the aggregate's currency.
 
-Such a calculation requires FX rates, rate dates, conversion conventions, and
-rounding methodology.
+A native tranche whose currency equals the aggregate currency may be referenced
+directly through `instrument.issue_size`.
 
-The initial consistency layer therefore does not directly sum unlike currencies.
+A tranche denominated in another currency must first be represented by a
+validated `instrument.issue_size_converted` observation.
 
-A cross-currency aggregate remains dependent on its explicit lineage and
-derivation reference, but full arithmetic validation is deferred until the FX
-methodology and reference-data layer exist.
+That converted observation must retain explicit lineage to:
 
-This is deliberate.
+- the native `instrument.issue_size`;
+- the exact `market_series.fx_rate` observation used;
+- the governed FX conversion methodology.
 
-The platform must not pretend that adding unlike currencies is meaningful.
+For example, an EUR aggregate containing an EUR tranche and a GBP tranche must
+reference:
+
+- the native EUR `instrument.issue_size`; and
+- the EUR `instrument.issue_size_converted` derived from the native GBP tranche.
+
+It must not reference the native GBP amount directly.
+
+Once all inputs are currency-normalized, exact `Decimal` arithmetic is enforced
+against the calculated aggregate.
 
 ## Disclosed Aggregate Size
 

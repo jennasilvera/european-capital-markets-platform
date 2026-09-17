@@ -29,6 +29,14 @@ class MetadataRequirement(StrEnum):
     REQUIRED = "REQUIRED"
 
 
+class CurrencyBinding(StrEnum):
+    """Semantic relationship between a field and currency metadata."""
+
+    NONE = "NONE"
+    INSTRUMENT_CURRENCY = "INSTRUMENT_CURRENCY"
+    OBSERVATION_CURRENCY = "OBSERVATION_CURRENCY"
+
+
 class ObservationUnit(StrEnum):
     """Controlled unit vocabulary for governed observation fields."""
 
@@ -50,6 +58,7 @@ class ObservationFieldDefinition:
     unit_requirement: MetadataRequirement = MetadataRequirement.FORBIDDEN
     allowed_units: frozenset[ObservationUnit] = frozenset()
     currency_requirement: MetadataRequirement = MetadataRequirement.FORBIDDEN
+    currency_binding: CurrencyBinding = CurrencyBinding.NONE
 
     def __post_init__(self) -> None:
         expected_prefix = f"{self.subject_type.value.lower()}."
@@ -84,6 +93,30 @@ class ObservationFieldDefinition:
                     "allowed_units must contain ObservationUnit values."
                 )
 
+        if (
+            self.currency_requirement is MetadataRequirement.FORBIDDEN
+            and self.currency_binding is not CurrencyBinding.NONE
+        ):
+            raise ValueError(
+                "A currency-forbidden field must use CurrencyBinding.NONE."
+            )
+
+        if (
+            self.currency_requirement is not MetadataRequirement.FORBIDDEN
+            and self.currency_binding is CurrencyBinding.NONE
+        ):
+            raise ValueError(
+                "A currency-bearing field requires explicit currency binding."
+            )
+
+        if (
+            self.currency_binding is CurrencyBinding.INSTRUMENT_CURRENCY
+            and self.subject_type is not EntityType.INSTRUMENT
+        ):
+            raise ValueError(
+                "INSTRUMENT_CURRENCY binding requires INSTRUMENT subject scope."
+            )
+
 
 FIELD_DEFINITIONS: tuple[ObservationFieldDefinition, ...] = (
     ObservationFieldDefinition(
@@ -103,6 +136,7 @@ FIELD_DEFINITIONS: tuple[ObservationFieldDefinition, ...] = (
             "Explicit or governed calculated aggregate transaction size."
         ),
         currency_requirement=MetadataRequirement.REQUIRED,
+        currency_binding=CurrencyBinding.OBSERVATION_CURRENCY,
     ),
     ObservationFieldDefinition(
         field_name="instrument.currency",
@@ -116,6 +150,18 @@ FIELD_DEFINITIONS: tuple[ObservationFieldDefinition, ...] = (
         value_type=ObservationValueType.DECIMAL,
         description="Principal or issuance amount for the instrument.",
         currency_requirement=MetadataRequirement.REQUIRED,
+        currency_binding=CurrencyBinding.INSTRUMENT_CURRENCY,
+    ),
+    ObservationFieldDefinition(
+        field_name="instrument.issue_size_converted",
+        subject_type=EntityType.INSTRUMENT,
+        value_type=ObservationValueType.DECIMAL,
+        description=(
+            "Calculated issue size expressed in an explicit target "
+            "analytical currency using a referenced FX-rate observation."
+        ),
+        currency_requirement=MetadataRequirement.REQUIRED,
+        currency_binding=CurrencyBinding.OBSERVATION_CURRENCY,
     ),
     ObservationFieldDefinition(
         field_name="instrument.issue_price_percent_of_par",
@@ -169,6 +215,7 @@ FIELD_DEFINITIONS: tuple[ObservationFieldDefinition, ...] = (
         value_type=ObservationValueType.DECIMAL,
         description="Instrument-level investor order-book size.",
         currency_requirement=MetadataRequirement.REQUIRED,
+        currency_binding=CurrencyBinding.INSTRUMENT_CURRENCY,
     ),
     ObservationFieldDefinition(
         field_name="instrument.new_issue_premium_bps",
@@ -186,6 +233,7 @@ FIELD_DEFINITIONS: tuple[ObservationFieldDefinition, ...] = (
         unit_requirement=MetadataRequirement.REQUIRED,
         allowed_units=frozenset({ObservationUnit.PER_SHARE}),
         currency_requirement=MetadataRequirement.REQUIRED,
+        currency_binding=CurrencyBinding.INSTRUMENT_CURRENCY,
     ),
     ObservationFieldDefinition(
         field_name="instrument.discount_percent",
@@ -214,6 +262,7 @@ FIELD_DEFINITIONS: tuple[ObservationFieldDefinition, ...] = (
             "before transaction costs or other deductions."
         ),
         currency_requirement=MetadataRequirement.REQUIRED,
+        currency_binding=CurrencyBinding.OBSERVATION_CURRENCY,
     ),
 )
 
