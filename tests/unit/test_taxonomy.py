@@ -8,6 +8,8 @@ from european_capital_markets.domain.taxonomy import (
     ECMExecutionMethod,
     ECMStructure,
     EntityType,
+    IdentifierScopeType,
+    IssuerIdentifierType,
     LeveragedFinanceInstrument,
     LeveragedFinancePurpose,
     MissingDataState,
@@ -64,6 +66,13 @@ def test_source_type_is_separate_from_source_tier() -> None:
     assert SourceType.ANALYST_WORKPAPER.value == "ANALYST_WORKPAPER"
 
 
+def test_issuer_identifier_taxonomy_is_explicit() -> None:
+    assert IssuerIdentifierType.LEI.value == "LEI"
+    assert IssuerIdentifierType.TICKER.value == "TICKER"
+    assert IdentifierScopeType.GLOBAL.value == "GLOBAL"
+    assert IdentifierScopeType.TRADING_VENUE.value == "TRADING_VENUE"
+
+
 def test_ecm_dimensions_are_separate() -> None:
     assert ECMStructure.RIGHTS_ISSUE.value == "RIGHTS_ISSUE"
     assert CapitalType.SECONDARY.value == "SECONDARY"
@@ -111,6 +120,8 @@ def test_all_string_enums_have_unique_values() -> None:
     enum_types = (
         EntityType,
         ProductFamily,
+        IssuerIdentifierType,
+        IdentifierScopeType,
         ValueClass,
         VerificationState,
         MissingDataState,

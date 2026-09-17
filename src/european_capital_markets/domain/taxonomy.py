@@ -106,6 +106,26 @@ class SourceType(StrEnum):
     OTHER = "OTHER"
 
 
+class IssuerIdentifierType(StrEnum):
+    """External identifier namespaces used for issuer resolution."""
+
+    LEI = "LEI"
+    TICKER = "TICKER"
+    COMPANY_REGISTRATION_NUMBER = "COMPANY_REGISTRATION_NUMBER"
+    VENDOR_IDENTIFIER = "VENDOR_IDENTIFIER"
+    OTHER = "OTHER"
+
+
+class IdentifierScopeType(StrEnum):
+    """Scope required to interpret an external issuer identifier."""
+
+    GLOBAL = "GLOBAL"
+    TRADING_VENUE = "TRADING_VENUE"
+    REGISTRY = "REGISTRY"
+    VENDOR = "VENDOR"
+    OTHER = "OTHER"
+
+
 class ECMStructure(StrEnum):
     """Economic or transaction structure for ECM issuance."""
 
