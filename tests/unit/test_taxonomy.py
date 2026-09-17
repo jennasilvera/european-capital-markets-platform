@@ -114,6 +114,7 @@ def test_core_entity_types_are_stable() -> None:
         "PARTY",
         "PARTICIPATION",
         "TRANSACTION",
+        "TRANSACTION_LIFECYCLE_EVENT",
         "INSTRUMENT",
         "OBSERVATION",
         "SOURCE",

@@ -27,6 +27,7 @@ Initial namespaces are:
 - `PTY000000001` — party;
 - `PAR000000001` — participation relationship;
 - TXN000000001 — transaction;
+- `TLE000000001` — transaction lifecycle event;
 - INS000000001 — instrument;
 - OBS000000001 — observation;
 - SRC000000001 — source;

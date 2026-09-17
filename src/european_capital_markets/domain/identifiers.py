@@ -12,6 +12,7 @@ _PREFIX_BY_ENTITY_TYPE: dict[EntityType, str] = {
     EntityType.PARTY: "PTY",
     EntityType.PARTICIPATION: "PAR",
     EntityType.TRANSACTION: "TXN",
+    EntityType.TRANSACTION_LIFECYCLE_EVENT: "TLE",
     EntityType.INSTRUMENT: "INS",
     EntityType.OBSERVATION: "OBS",
     EntityType.SOURCE: "SRC",

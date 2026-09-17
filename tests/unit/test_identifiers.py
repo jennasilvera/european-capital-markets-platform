@@ -15,6 +15,10 @@ from european_capital_markets.domain.taxonomy import EntityType
         (EntityType.PARTY, "PTY000000001"),
         (EntityType.PARTICIPATION, "PAR000000001"),
         (EntityType.TRANSACTION, "TXN000000001"),
+        (
+            EntityType.TRANSACTION_LIFECYCLE_EVENT,
+            "TLE000000001",
+        ),
         (EntityType.INSTRUMENT, "INS000000001"),
         (EntityType.OBSERVATION, "OBS000000001"),
         (EntityType.SOURCE, "SRC000000001"),
