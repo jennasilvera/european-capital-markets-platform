@@ -171,6 +171,20 @@ def test_subject_identifier_must_match_subject_type() -> None:
         )
 
 
+def test_market_series_can_be_observation_subject() -> None:
+    observation = ObservationRecord(
+        observation_id="OBS000000002",
+        subject_type=EntityType.MARKET_SERIES,
+        subject_id="MKS000000001",
+        field_name="market_series.fx_rate",
+        as_of_date=date(2026, 9, 16),
+        verification_state=VerificationState.PENDING,
+        missing_state=MissingDataState.PENDING_VERIFICATION,
+    )
+
+    assert observation.subject_type is EntityType.MARKET_SERIES
+
+
 def test_governance_record_cannot_be_observation_subject() -> None:
     with pytest.raises(ValueError, match="not an observable business subject"):
         ObservationRecord(

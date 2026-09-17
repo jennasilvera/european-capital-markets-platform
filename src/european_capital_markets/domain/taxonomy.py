@@ -12,11 +12,18 @@ class EntityType(StrEnum):
     TRANSACTION = "TRANSACTION"
     TRANSACTION_LIFECYCLE_EVENT = "TRANSACTION_LIFECYCLE_EVENT"
     INSTRUMENT = "INSTRUMENT"
+    MARKET_SERIES = "MARKET_SERIES"
     OBSERVATION = "OBSERVATION"
     SOURCE = "SOURCE"
     EVIDENCE = "EVIDENCE"
     ASSUMPTION = "ASSUMPTION"
     RELEASE = "RELEASE"
+
+
+class MarketSeriesType(StrEnum):
+    """Canonical market-series classifications."""
+
+    FX_REFERENCE_RATE = "FX_REFERENCE_RATE"
 
 
 class PartyType(StrEnum):

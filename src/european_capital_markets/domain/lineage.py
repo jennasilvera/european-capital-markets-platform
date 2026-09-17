@@ -24,6 +24,7 @@ _OBSERVABLE_SUBJECT_TYPES = frozenset(
         EntityType.PARTICIPATION,
         EntityType.TRANSACTION,
         EntityType.INSTRUMENT,
+        EntityType.MARKET_SERIES,
     }
 )
 

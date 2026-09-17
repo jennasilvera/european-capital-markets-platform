@@ -20,6 +20,7 @@ from european_capital_markets.domain.taxonomy import EntityType
             "TLE000000001",
         ),
         (EntityType.INSTRUMENT, "INS000000001"),
+        (EntityType.MARKET_SERIES, "MKS000000001"),
         (EntityType.OBSERVATION, "OBS000000001"),
         (EntityType.SOURCE, "SRC000000001"),
         (EntityType.EVIDENCE, "EVD000000001"),

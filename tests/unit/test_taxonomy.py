@@ -12,6 +12,7 @@ from european_capital_markets.domain.taxonomy import (
     IssuerIdentifierType,
     LeveragedFinanceInstrument,
     LeveragedFinancePurpose,
+    MarketSeriesType,
     MissingDataState,
     OwnershipType,
     ParticipantRole,
@@ -39,6 +40,12 @@ def test_product_families_are_explicit() -> None:
         "IG_DCM",
         "LEVERAGED_FINANCE",
         "EQUITY_LINKED",
+    }
+
+
+def test_market_series_types_are_explicit() -> None:
+    assert set(_values(MarketSeriesType)) == {
+        "FX_REFERENCE_RATE",
     }
 
 
@@ -116,6 +123,7 @@ def test_core_entity_types_are_stable() -> None:
         "TRANSACTION",
         "TRANSACTION_LIFECYCLE_EVENT",
         "INSTRUMENT",
+        "MARKET_SERIES",
         "OBSERVATION",
         "SOURCE",
         "EVIDENCE",
@@ -157,6 +165,7 @@ def test_all_string_enums_have_unique_values() -> None:
         DebtPurpose,
         LeveragedFinanceInstrument,
         LeveragedFinancePurpose,
+        MarketSeriesType,
         OwnershipType,
         SecurityType,
     )

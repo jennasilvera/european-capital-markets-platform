@@ -87,6 +87,15 @@ class ObservationFieldDefinition:
 
 FIELD_DEFINITIONS: tuple[ObservationFieldDefinition, ...] = (
     ObservationFieldDefinition(
+        field_name="market_series.fx_rate",
+        subject_type=EntityType.MARKET_SERIES,
+        value_type=ObservationValueType.DECIMAL,
+        description=(
+            "FX reference rate expressed as quote-currency units "
+            "per one base-currency unit."
+        ),
+    ),
+    ObservationFieldDefinition(
         field_name="transaction.aggregate_size",
         subject_type=EntityType.TRANSACTION,
         value_type=ObservationValueType.DECIMAL,
