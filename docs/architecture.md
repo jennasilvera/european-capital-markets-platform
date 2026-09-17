@@ -98,3 +98,12 @@ traceable either:
 Working analytical files may change.
 
 Released outputs are immutable. Corrections or updates produce a new release.
+
+## Persistence Contract
+
+The canonical relational persistence boundary is governed by
+[`docs/methodology/persistence_contract.md`](methodology/persistence_contract.md).
+
+Persistence must reproduce the frozen domain semantics rather than redefine
+them. Database, migration-framework, and ORM choices are downstream
+implementation decisions.
