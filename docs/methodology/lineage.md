@@ -24,6 +24,7 @@ Canonical records use permanent, non-semantic identifiers.
 Initial namespaces are:
 
 - ISS000000001 — issuer;
+- `PTY000000001` — party;
 - TXN000000001 — transaction;
 - INS000000001 — instrument;
 - OBS000000001 — observation;
@@ -108,6 +109,7 @@ An observation represents either:
 The initial observable business subjects are:
 
 - issuer;
+- party;
 - transaction;
 - instrument.
 

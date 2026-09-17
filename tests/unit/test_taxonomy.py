@@ -14,6 +14,7 @@ from european_capital_markets.domain.taxonomy import (
     LeveragedFinancePurpose,
     MissingDataState,
     OwnershipType,
+    PartyType,
     ProductFamily,
     RateType,
     ReleaseStatus,
@@ -37,6 +38,18 @@ def test_product_families_are_explicit() -> None:
         "IG_DCM",
         "LEVERAGED_FINANCE",
         "EQUITY_LINKED",
+    }
+
+
+def test_party_types_are_explicit() -> None:
+    assert set(_values(PartyType)) == {
+        "CORPORATE",
+        "FINANCIAL_INSTITUTION",
+        "FUND",
+        "GOVERNMENT",
+        "INDIVIDUAL",
+        "SPECIAL_PURPOSE_VEHICLE",
+        "OTHER",
     }
 
 
@@ -97,6 +110,7 @@ def test_leveraged_finance_dimensions_are_separate() -> None:
 def test_core_entity_types_are_stable() -> None:
     assert set(_values(EntityType)) == {
         "ISSUER",
+        "PARTY",
         "TRANSACTION",
         "INSTRUMENT",
         "OBSERVATION",
@@ -119,6 +133,7 @@ def test_release_states_are_explicit() -> None:
 def test_all_string_enums_have_unique_values() -> None:
     enum_types = (
         EntityType,
+        PartyType,
         ProductFamily,
         IssuerIdentifierType,
         IdentifierScopeType,

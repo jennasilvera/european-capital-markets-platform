@@ -12,6 +12,7 @@ from european_capital_markets.domain.taxonomy import EntityType
     ("entity_type", "expected"),
     [
         (EntityType.ISSUER, "ISS000000001"),
+        (EntityType.PARTY, "PTY000000001"),
         (EntityType.TRANSACTION, "TXN000000001"),
         (EntityType.INSTRUMENT, "INS000000001"),
         (EntityType.OBSERVATION, "OBS000000001"),

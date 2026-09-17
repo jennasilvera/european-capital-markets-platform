@@ -9,6 +9,7 @@ IDENTIFIER_WIDTH = 9
 
 _PREFIX_BY_ENTITY_TYPE: dict[EntityType, str] = {
     EntityType.ISSUER: "ISS",
+    EntityType.PARTY: "PTY",
     EntityType.TRANSACTION: "TXN",
     EntityType.INSTRUMENT: "INS",
     EntityType.OBSERVATION: "OBS",

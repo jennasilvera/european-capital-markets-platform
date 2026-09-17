@@ -194,3 +194,24 @@ change and must consider:
 
 Display labels may evolve without changing the stable machine-readable value
 where appropriate.
+
+## Canonical Party
+
+`PARTY` is a canonical entity class for organizations or individuals that may
+participate in a transaction without necessarily being an issuer.
+
+Parties use the permanent `PTY...` identifier namespace.
+
+The core financing hierarchy remains:
+
+Issuer
+→ Transaction
+→ Instrument
+
+Party is not inserted as another level in that hierarchy.
+
+Instead, party records provide reusable participant identity for later
+transaction- and instrument-role relationships.
+
+A party may optionally bridge to an existing canonical issuer when both records
+refer to the same analytical identity.

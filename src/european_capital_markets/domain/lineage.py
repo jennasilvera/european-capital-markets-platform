@@ -20,6 +20,7 @@ type ScalarValue = str | int | Decimal | bool | date | datetime
 _OBSERVABLE_SUBJECT_TYPES = frozenset(
     {
         EntityType.ISSUER,
+        EntityType.PARTY,
         EntityType.TRANSACTION,
         EntityType.INSTRUMENT,
     }

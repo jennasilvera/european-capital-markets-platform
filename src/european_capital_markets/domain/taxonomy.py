@@ -7,6 +7,7 @@ class EntityType(StrEnum):
     """Canonical entity classes used by the analytical data model."""
 
     ISSUER = "ISSUER"
+    PARTY = "PARTY"
     TRANSACTION = "TRANSACTION"
     INSTRUMENT = "INSTRUMENT"
     OBSERVATION = "OBSERVATION"
@@ -14,6 +15,18 @@ class EntityType(StrEnum):
     EVIDENCE = "EVIDENCE"
     ASSUMPTION = "ASSUMPTION"
     RELEASE = "RELEASE"
+
+
+class PartyType(StrEnum):
+    """Canonical party classifications used in transaction relationships."""
+
+    CORPORATE = "CORPORATE"
+    FINANCIAL_INSTITUTION = "FINANCIAL_INSTITUTION"
+    FUND = "FUND"
+    GOVERNMENT = "GOVERNMENT"
+    INDIVIDUAL = "INDIVIDUAL"
+    SPECIAL_PURPOSE_VEHICLE = "SPECIAL_PURPOSE_VEHICLE"
+    OTHER = "OTHER"
 
 
 class ProductFamily(StrEnum):

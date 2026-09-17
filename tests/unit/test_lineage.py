@@ -387,3 +387,31 @@ def test_unverified_observation_cannot_have_verified_timestamp() -> None:
             verified_at=VERIFIED_AT,
             missing_state=MissingDataState.PENDING_VERIFICATION,
         )
+
+
+def test_party_is_valid_observation_subject() -> None:
+    observation = ObservationRecord(
+        observation_id="OBS000000010",
+        subject_type=EntityType.PARTY,
+        subject_id="PTY000000001",
+        field_name="party.country",
+        as_of_date=date(2026, 9, 17),
+        verification_state=VerificationState.PENDING,
+        missing_state=MissingDataState.PENDING_VERIFICATION,
+    )
+
+    assert observation.subject_type is EntityType.PARTY
+    assert observation.subject_id == "PTY000000001"
+
+
+def test_party_subject_requires_party_identifier() -> None:
+    with pytest.raises(ValueError, match="not PARTY"):
+        ObservationRecord(
+            observation_id="OBS000000011",
+            subject_type=EntityType.PARTY,
+            subject_id="ISS000000001",
+            field_name="party.country",
+            as_of_date=date(2026, 9, 17),
+            verification_state=VerificationState.PENDING,
+            missing_state=MissingDataState.PENDING_VERIFICATION,
+        )
