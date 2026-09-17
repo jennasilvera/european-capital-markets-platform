@@ -223,10 +223,14 @@ The field does not apply to the relevant instrument, transaction, or entity.
 
 The field may be populated after verification is completed.
 
-### NULL
+### Storage NULL
 
-Used only where the schema permits a genuinely absent value and no more
-specific missing-data state applies.
+NULL is a persistence representation, not a semantic analytical missing-data
+state.
+
+Optional storage fields may be NULL where appropriate, but an analytical
+observation representing missing information must use the applicable explicit
+missing-data state.
 
 ## Conflicting Evidence
 
