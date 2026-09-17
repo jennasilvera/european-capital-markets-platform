@@ -21,6 +21,7 @@ _OBSERVABLE_SUBJECT_TYPES = frozenset(
     {
         EntityType.ISSUER,
         EntityType.PARTY,
+        EntityType.PARTICIPATION,
         EntityType.TRANSACTION,
         EntityType.INSTRUMENT,
     }

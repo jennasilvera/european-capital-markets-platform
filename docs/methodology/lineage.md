@@ -25,6 +25,7 @@ Initial namespaces are:
 
 - ISS000000001 — issuer;
 - `PTY000000001` — party;
+- `PAR000000001` — participation relationship;
 - TXN000000001 — transaction;
 - INS000000001 — instrument;
 - OBS000000001 — observation;
@@ -110,6 +111,7 @@ The initial observable business subjects are:
 
 - issuer;
 - party;
+- participation;
 - transaction;
 - instrument.
 

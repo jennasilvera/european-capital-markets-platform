@@ -415,3 +415,31 @@ def test_party_subject_requires_party_identifier() -> None:
             verification_state=VerificationState.PENDING,
             missing_state=MissingDataState.PENDING_VERIFICATION,
         )
+
+
+def test_participation_is_valid_observation_subject() -> None:
+    observation = ObservationRecord(
+        observation_id="OBS000000012",
+        subject_type=EntityType.PARTICIPATION,
+        subject_id="PAR000000001",
+        field_name="participation.shares_sold",
+        as_of_date=date(2026, 9, 17),
+        verification_state=VerificationState.PENDING,
+        missing_state=MissingDataState.PENDING_VERIFICATION,
+    )
+
+    assert observation.subject_type is EntityType.PARTICIPATION
+    assert observation.subject_id == "PAR000000001"
+
+
+def test_participation_subject_requires_participation_identifier() -> None:
+    with pytest.raises(ValueError, match="not PARTICIPATION"):
+        ObservationRecord(
+            observation_id="OBS000000013",
+            subject_type=EntityType.PARTICIPATION,
+            subject_id="PTY000000001",
+            field_name="participation.shares_sold",
+            as_of_date=date(2026, 9, 17),
+            verification_state=VerificationState.PENDING,
+            missing_state=MissingDataState.PENDING_VERIFICATION,
+        )

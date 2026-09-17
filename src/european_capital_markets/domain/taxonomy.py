@@ -8,6 +8,7 @@ class EntityType(StrEnum):
 
     ISSUER = "ISSUER"
     PARTY = "PARTY"
+    PARTICIPATION = "PARTICIPATION"
     TRANSACTION = "TRANSACTION"
     INSTRUMENT = "INSTRUMENT"
     OBSERVATION = "OBSERVATION"
@@ -27,6 +28,17 @@ class PartyType(StrEnum):
     INDIVIDUAL = "INDIVIDUAL"
     SPECIAL_PURPOSE_VEHICLE = "SPECIAL_PURPOSE_VEHICLE"
     OTHER = "OTHER"
+
+
+class ParticipantRole(StrEnum):
+    """Role performed by a canonical party in a financing event."""
+
+    LEGAL_ISSUER = "LEGAL_ISSUER"
+    BORROWER = "BORROWER"
+    GUARANTOR = "GUARANTOR"
+    SPONSOR = "SPONSOR"
+    SELLING_SHAREHOLDER = "SELLING_SHAREHOLDER"
+    ACQUISITION_VEHICLE = "ACQUISITION_VEHICLE"
 
 
 class ProductFamily(StrEnum):

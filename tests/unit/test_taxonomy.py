@@ -14,6 +14,7 @@ from european_capital_markets.domain.taxonomy import (
     LeveragedFinancePurpose,
     MissingDataState,
     OwnershipType,
+    ParticipantRole,
     PartyType,
     ProductFamily,
     RateType,
@@ -111,6 +112,7 @@ def test_core_entity_types_are_stable() -> None:
     assert set(_values(EntityType)) == {
         "ISSUER",
         "PARTY",
+        "PARTICIPATION",
         "TRANSACTION",
         "INSTRUMENT",
         "OBSERVATION",
@@ -133,6 +135,7 @@ def test_release_states_are_explicit() -> None:
 def test_all_string_enums_have_unique_values() -> None:
     enum_types = (
         EntityType,
+        ParticipantRole,
         PartyType,
         ProductFamily,
         IssuerIdentifierType,
@@ -160,3 +163,13 @@ def test_all_string_enums_have_unique_values() -> None:
     for enum_type in enum_types:
         values = _values(enum_type)
         assert len(values) == len(set(values)), enum_type.__name__
+
+def test_participant_roles_are_explicit() -> None:
+    assert set(_values(ParticipantRole)) == {
+        "LEGAL_ISSUER",
+        "BORROWER",
+        "GUARANTOR",
+        "SPONSOR",
+        "SELLING_SHAREHOLDER",
+        "ACQUISITION_VEHICLE",
+    }
