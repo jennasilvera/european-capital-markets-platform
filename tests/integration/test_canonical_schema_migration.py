@@ -698,4 +698,4 @@ def test_restrictive_source_delete_preserves_evidence(
             )
         )
 
-    assert _sqlstate(exc_info.value) == "23503"
+    assert _sqlstate(exc_info.value) == "23001"
