@@ -53,6 +53,7 @@ from european_capital_markets.domain.taxonomy import (
     VerificationState,
 )
 from european_capital_markets.persistence import (
+    CanonicalRepository,
     load_canonical_dataset,
     persist_canonical_dataset,
 )
@@ -486,6 +487,155 @@ def test_complete_dataset_round_trips_unchanged(
     reconstructed = load_canonical_dataset(engine)
 
     assert reconstructed == dataset
+
+
+
+
+def test_repository_returns_canonical_issuer(
+    engine: Engine,
+) -> None:
+    """Permanent issuer IDs resolve to validated frozen issuer records."""
+
+    dataset = _dataset(4)
+    persist_canonical_dataset(engine, dataset)
+
+    repository = CanonicalRepository(engine)
+
+    assert repository.get_issuer(
+        dataset.issuers[0].issuer_id
+    ) == dataset.issuers[0]
+
+    assert repository.get_issuer(
+        "ISS999999999"
+    ) is None
+
+
+def test_repository_resolves_identifier_as_of_date(
+    engine: Engine,
+) -> None:
+    """Identifier access preserves half-open assignment validity."""
+
+    dataset = _dataset(5)
+    identifier = dataset.issuer_identifiers[0]
+
+    bounded_identifier = IssuerIdentifierRecord(
+        issuer_id=identifier.issuer_id,
+        identifier_type=identifier.identifier_type,
+        identifier_value=identifier.identifier_value,
+        scope_type=identifier.scope_type,
+        evidence_ids=identifier.evidence_ids,
+        scope_value=identifier.scope_value,
+        assignment_valid_from=date(2026, 1, 1),
+        assignment_valid_to=date(2027, 1, 1),
+        notes=identifier.notes,
+    )
+
+    dataset = CanonicalDataset(
+        issuers=dataset.issuers,
+        transactions=dataset.transactions,
+        instruments=dataset.instruments,
+        issuer_identifiers=(bounded_identifier,),
+        parties=dataset.parties,
+        participations=dataset.participations,
+        lifecycle_events=dataset.lifecycle_events,
+        market_series=dataset.market_series,
+        fx_reference_rates=dataset.fx_reference_rates,
+        sources=dataset.sources,
+        evidence=dataset.evidence,
+        observations=dataset.observations,
+    )
+
+    persist_canonical_dataset(engine, dataset)
+
+    repository = CanonicalRepository(engine)
+
+    query = {
+        "identifier_type": bounded_identifier.identifier_type,
+        "identifier_value": bounded_identifier.identifier_value,
+        "scope_type": bounded_identifier.scope_type,
+        "scope_value": bounded_identifier.scope_value,
+    }
+
+    assert repository.resolve_issuer_identifier(
+        **query,
+        as_of_date=date(2025, 12, 31),
+    ) is None
+
+    assert repository.resolve_issuer_identifier(
+        **query,
+        as_of_date=date(2026, 1, 1),
+    ) == bounded_identifier.issuer_id
+
+    assert repository.resolve_issuer_identifier(
+        **query,
+        as_of_date=date(2026, 12, 31),
+    ) == bounded_identifier.issuer_id
+
+    assert repository.resolve_issuer_identifier(
+        **query,
+        as_of_date=date(2027, 1, 1),
+    ) is None
+
+
+def test_repository_derives_transaction_status_as_of_date(
+    engine: Engine,
+) -> None:
+    """Status queries delegate historical interpretation to domain logic."""
+
+    dataset = _dataset(6)
+    priced_event = dataset.lifecycle_events[0]
+
+    launched_event = TransactionLifecycleEventRecord(
+        event_id="TLE000000061",
+        transaction_id=priced_event.transaction_id,
+        status=TransactionStatus.LAUNCHED,
+        effective_date=date(2026, 9, 16),
+        event_order=1,
+        evidence_ids=priced_event.evidence_ids,
+        notes="Transaction launched",
+    )
+
+    dataset = CanonicalDataset(
+        issuers=dataset.issuers,
+        transactions=dataset.transactions,
+        instruments=dataset.instruments,
+        issuer_identifiers=dataset.issuer_identifiers,
+        parties=dataset.parties,
+        participations=dataset.participations,
+        lifecycle_events=(
+            launched_event,
+            priced_event,
+        ),
+        market_series=dataset.market_series,
+        fx_reference_rates=dataset.fx_reference_rates,
+        sources=dataset.sources,
+        evidence=dataset.evidence,
+        observations=dataset.observations,
+    )
+
+    persist_canonical_dataset(engine, dataset)
+
+    repository = CanonicalRepository(engine)
+    transaction_id = dataset.transactions[0].transaction_id
+
+    assert repository.get_transaction_status(
+        transaction_id,
+        as_of_date=date(2026, 9, 15),
+    ) is None
+
+    assert repository.get_transaction_status(
+        transaction_id,
+        as_of_date=date(2026, 9, 16),
+    ) is TransactionStatus.LAUNCHED
+
+    assert repository.get_transaction_status(
+        transaction_id,
+        as_of_date=date(2026, 9, 17),
+    ) is TransactionStatus.PRICED
+
+    assert repository.get_transaction_status(
+        transaction_id
+    ) is TransactionStatus.PRICED
 
 
 
