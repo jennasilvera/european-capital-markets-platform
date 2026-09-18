@@ -24,6 +24,12 @@ class MarketSeriesType(StrEnum):
     """Canonical market-series classifications."""
 
     FX_REFERENCE_RATE = "FX_REFERENCE_RATE"
+    POLICY_RATE = "POLICY_RATE"
+    GOVERNMENT_YIELD = "GOVERNMENT_YIELD"
+    SWAP_RATE = "SWAP_RATE"
+    CREDIT_SPREAD = "CREDIT_SPREAD"
+    EQUITY_INDEX = "EQUITY_INDEX"
+    VOLATILITY_INDEX = "VOLATILITY_INDEX"
 
 
 class PartyType(StrEnum):

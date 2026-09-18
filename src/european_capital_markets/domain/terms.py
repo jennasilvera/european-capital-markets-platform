@@ -43,6 +43,7 @@ class ObservationUnit(StrEnum):
     PERCENT = "PERCENT"
     PERCENT_OF_PAR = "PERCENT_OF_PAR"
     BASIS_POINTS = "BASIS_POINTS"
+    INDEX_POINTS = "INDEX_POINTS"
     PER_SHARE = "PER_SHARE"
     SHARES = "SHARES"
 
@@ -127,6 +128,52 @@ FIELD_DEFINITIONS: tuple[ObservationFieldDefinition, ...] = (
             "FX reference rate expressed as quote-currency units "
             "per one base-currency unit."
         ),
+    ),
+    ObservationFieldDefinition(
+        field_name="market_series.rate_percent",
+        subject_type=EntityType.MARKET_SERIES,
+        value_type=ObservationValueType.DECIMAL,
+        description=(
+            "Defined policy or swap rate expressed in percentage points."
+        ),
+        unit_requirement=MetadataRequirement.REQUIRED,
+        allowed_units=frozenset({ObservationUnit.PERCENT}),
+    ),
+    ObservationFieldDefinition(
+        field_name="market_series.yield_percent",
+        subject_type=EntityType.MARKET_SERIES,
+        value_type=ObservationValueType.DECIMAL,
+        description=(
+            "Defined sovereign benchmark yield expressed in percentage points."
+        ),
+        unit_requirement=MetadataRequirement.REQUIRED,
+        allowed_units=frozenset({ObservationUnit.PERCENT}),
+    ),
+    ObservationFieldDefinition(
+        field_name="market_series.spread_bps",
+        subject_type=EntityType.MARKET_SERIES,
+        value_type=ObservationValueType.DECIMAL,
+        description=(
+            "Defined credit spread expressed in basis points."
+        ),
+        unit_requirement=MetadataRequirement.REQUIRED,
+        allowed_units=frozenset({ObservationUnit.BASIS_POINTS}),
+    ),
+    ObservationFieldDefinition(
+        field_name="market_series.index_level",
+        subject_type=EntityType.MARKET_SERIES,
+        value_type=ObservationValueType.DECIMAL,
+        description="Defined equity-index level.",
+        unit_requirement=MetadataRequirement.REQUIRED,
+        allowed_units=frozenset({ObservationUnit.INDEX_POINTS}),
+    ),
+    ObservationFieldDefinition(
+        field_name="market_series.volatility_level",
+        subject_type=EntityType.MARKET_SERIES,
+        value_type=ObservationValueType.DECIMAL,
+        description="Defined volatility-index level.",
+        unit_requirement=MetadataRequirement.REQUIRED,
+        allowed_units=frozenset({ObservationUnit.INDEX_POINTS}),
     ),
     ObservationFieldDefinition(
         field_name="transaction.aggregate_size",

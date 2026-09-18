@@ -440,3 +440,46 @@ def test_converted_issue_size_requires_target_currency() -> None:
 
     with pytest.raises(ValueError, match="requires currency"):
         validate_term_observation(observation)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "unit"),
+    [
+        ("market_series.rate_percent", "PERCENT"),
+        ("market_series.yield_percent", "PERCENT"),
+        ("market_series.spread_bps", "BASIS_POINTS"),
+        ("market_series.index_level", "INDEX_POINTS"),
+        ("market_series.volatility_level", "INDEX_POINTS"),
+    ],
+)
+def test_phase1_market_fields_accept_required_units(
+    field_name: str,
+    unit: str,
+) -> None:
+    observation = _observation(
+        subject_type=EntityType.MARKET_SERIES,
+        subject_id="MKS000000001",
+        field_name=field_name,
+        value=Decimal("1.25"),
+        unit=unit,
+        currency=None,
+    )
+
+    validate_term_observation(observation)
+
+
+def test_phase1_market_rate_rejects_missing_unit() -> None:
+    observation = _observation(
+        subject_type=EntityType.MARKET_SERIES,
+        subject_id="MKS000000001",
+        field_name="market_series.rate_percent",
+        value=Decimal("1.25"),
+        unit=None,
+        currency=None,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="requires unit metadata",
+    ):
+        validate_term_observation(observation)
