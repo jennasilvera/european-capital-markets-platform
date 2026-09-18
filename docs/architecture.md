@@ -112,3 +112,19 @@ The selected backend and migration tooling are documented in
 
 PostgreSQL is the canonical relational backend. The initial implementation uses
 Psycopg 3, SQLAlchemy Core, and Alembic without introducing ORM models.
+
+## Canonical Dataset Validation Boundary
+
+The current in-memory canonical state represented by the frozen domain
+record families is grouped in `CanonicalDataset`.
+
+Before a canonical dataset is persisted, it must pass
+`validate_canonical_dataset()`.
+
+The aggregate validator composes the frozen domain validators rather than
+reimplementing their semantics. It also enforces the cross-family invariant
+that every observation references a concrete canonical subject of the declared
+subject type.
+
+Persistence adapters must not treat successful construction of individual
+records as proof that the complete canonical dataset is coherent.
