@@ -105,5 +105,10 @@ The canonical relational persistence boundary is governed by
 [`docs/methodology/persistence_contract.md`](methodology/persistence_contract.md).
 
 Persistence must reproduce the frozen domain semantics rather than redefine
-them. Database, migration-framework, and ORM choices are downstream
-implementation decisions.
+them.
+
+The selected backend and migration tooling are documented in
+[`docs/methodology/persistence_backend.md`](methodology/persistence_backend.md).
+
+PostgreSQL is the canonical relational backend. The initial implementation uses
+Psycopg 3, SQLAlchemy Core, and Alembic without introducing ORM models.
