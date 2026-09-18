@@ -128,3 +128,13 @@ subject type.
 
 Persistence adapters must not treat successful construction of individual
 records as proof that the complete canonical dataset is coherent.
+
+## European Market Framework
+
+Phase 1 market-series semantics are governed by
+[`docs/methodology/european_market_framework.md`](methodology/european_market_framework.md).
+
+The framework separates stable market-series identity, date-level sourced
+observations, and downstream market analytics before additional rate, yield,
+spread, equity-index, or volatility series are added to the executable domain
+model.
