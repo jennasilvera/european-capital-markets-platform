@@ -77,7 +77,7 @@ jobs:
         run: uv run alembic upgrade head
 
       - name: PostgreSQL migration integration tests
-        run: uv run pytest tests/integration/test_canonical_schema_migration.py -q
+        run: uv run pytest tests/integration -q
 
       - name: Downgrade canonical schema
         run: uv run alembic downgrade base
@@ -86,4 +86,4 @@ jobs:
         run: uv run alembic upgrade head
 
       - name: Verify schema after migration cycle
-        run: uv run pytest tests/integration/test_canonical_schema_migration.py -q
+        run: uv run pytest tests/integration -q

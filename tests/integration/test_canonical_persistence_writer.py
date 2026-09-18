@@ -1,0 +1,520 @@
+"""Integration tests for transactional canonical dataset persistence."""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+from datetime import UTC, date, datetime
+from decimal import Decimal
+
+import pytest
+import sqlalchemy as sa
+from sqlalchemy import Engine
+from sqlalchemy.exc import IntegrityError
+
+from european_capital_markets.domain.dataset import CanonicalDataset
+from european_capital_markets.domain.entities import (
+    InstrumentRecord,
+    IssuerRecord,
+    TransactionRecord,
+)
+from european_capital_markets.domain.issuer_identity import (
+    IssuerIdentifierRecord,
+)
+from european_capital_markets.domain.lifecycle import (
+    TransactionLifecycleEventRecord,
+)
+from european_capital_markets.domain.lineage import (
+    EvidenceRecord,
+    ObservationRecord,
+    SourceRecord,
+)
+from european_capital_markets.domain.market_data import (
+    FXReferenceRateDefinitionRecord,
+    MarketSeriesRecord,
+)
+from european_capital_markets.domain.participations import (
+    ParticipationRecord,
+)
+from european_capital_markets.domain.parties import PartyRecord
+from european_capital_markets.domain.taxonomy import (
+    EntityType,
+    IdentifierScopeType,
+    IssuerIdentifierType,
+    MarketSeriesType,
+    MissingDataState,
+    ParticipantRole,
+    PartyType,
+    ProductFamily,
+    SourceTier,
+    SourceType,
+    TransactionStatus,
+    ValueClass,
+    VerificationState,
+)
+from european_capital_markets.persistence import (
+    persist_canonical_dataset,
+)
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+pytestmark = pytest.mark.skipif(
+    not DATABASE_URL,
+    reason="DATABASE_URL is required for PostgreSQL integration tests.",
+)
+
+CANONICAL_TABLES = (
+    "observation_inputs",
+    "observation_evidence",
+    "transaction_lifecycle_event_evidence",
+    "participation_evidence",
+    "issuer_identifier_evidence",
+    "observations",
+    "observation_subjects",
+    "transaction_lifecycle_events",
+    "issuer_identifiers",
+    "evidence",
+    "sources",
+    "fx_reference_rate_definitions",
+    "market_series",
+    "participations",
+    "instruments",
+    "transactions",
+    "parties",
+    "issuers",
+)
+
+
+@pytest.fixture(scope="session")
+def engine() -> Iterator[Engine]:
+    """Return the migrated PostgreSQL integration database engine."""
+
+    if DATABASE_URL is None:
+        pytest.skip("DATABASE_URL is required.")
+
+    database_engine = sa.create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+    )
+
+    try:
+        yield database_engine
+    finally:
+        database_engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def clean_database(engine: Engine) -> Iterator[None]:
+    """Isolate committed writer tests from every other integration test."""
+
+    _truncate_canonical_tables(engine)
+
+    try:
+        yield
+    finally:
+        _truncate_canonical_tables(engine)
+
+
+def _truncate_canonical_tables(engine: Engine) -> None:
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                f"""
+                TRUNCATE TABLE
+                    {", ".join(CANONICAL_TABLES)}
+                RESTART IDENTITY CASCADE
+                """
+            )
+        )
+
+
+def _canonical_id(prefix: str, sequence: int) -> str:
+    return f"{prefix}{sequence:09d}"
+
+
+def _dataset(sequence: int) -> CanonicalDataset:
+    issuer_id = _canonical_id("ISS", sequence)
+    transaction_id = _canonical_id("TXN", sequence)
+    instrument_id = _canonical_id("INS", sequence)
+    party_id = _canonical_id("PTY", sequence)
+    participation_id = _canonical_id("PAR", sequence)
+    event_id = _canonical_id("TLE", sequence)
+    market_series_id = _canonical_id("MKS", sequence)
+    source_id = _canonical_id("SRC", sequence)
+
+    evidence_one = _canonical_id(
+        "EVD",
+        sequence * 10 + 1,
+    )
+    evidence_two = _canonical_id(
+        "EVD",
+        sequence * 10 + 2,
+    )
+
+    disclosed_observation_id = _canonical_id(
+        "OBS",
+        sequence * 10 + 1,
+    )
+    calculated_observation_id = _canonical_id(
+        "OBS",
+        sequence * 10 + 2,
+    )
+    missing_observation_id = _canonical_id(
+        "OBS",
+        sequence * 10 + 3,
+    )
+
+    return CanonicalDataset(
+        issuers=(
+            IssuerRecord(
+                issuer_id=issuer_id,
+                canonical_name=f"Example Issuer {sequence} plc",
+            ),
+        ),
+        transactions=(
+            TransactionRecord(
+                transaction_id=transaction_id,
+                primary_issuer_id=issuer_id,
+                product_family=ProductFamily.IG_DCM,
+                transaction_label="Canonical financing event",
+            ),
+        ),
+        instruments=(
+            InstrumentRecord(
+                instrument_id=instrument_id,
+                transaction_id=transaction_id,
+                instrument_label="Senior notes",
+            ),
+        ),
+        issuer_identifiers=(
+            IssuerIdentifierRecord(
+                issuer_id=issuer_id,
+                identifier_type=IssuerIdentifierType.TICKER,
+                identifier_value=f"EXM{sequence}",
+                scope_type=IdentifierScopeType.TRADING_VENUE,
+                scope_value="XLON",
+                evidence_ids=(
+                    evidence_one,
+                    evidence_two,
+                ),
+                notes="Canonical ticker assignment",
+            ),
+        ),
+        parties=(
+            PartyRecord(
+                party_id=party_id,
+                party_type=PartyType.CORPORATE,
+                linked_issuer_id=issuer_id,
+            ),
+        ),
+        participations=(
+            ParticipationRecord(
+                participation_id=participation_id,
+                party_id=party_id,
+                transaction_id=transaction_id,
+                role=ParticipantRole.LEGAL_ISSUER,
+                evidence_ids=(
+                    evidence_two,
+                    evidence_one,
+                ),
+                notes="Legal issuer participation",
+            ),
+        ),
+        lifecycle_events=(
+            TransactionLifecycleEventRecord(
+                event_id=event_id,
+                transaction_id=transaction_id,
+                status=TransactionStatus.PRICED,
+                effective_date=date(2026, 9, 17),
+                event_order=1,
+                evidence_ids=(
+                    evidence_one,
+                    evidence_two,
+                ),
+                notes="Transaction priced",
+            ),
+        ),
+        market_series=(
+            MarketSeriesRecord(
+                market_series_id=market_series_id,
+                series_type=MarketSeriesType.FX_REFERENCE_RATE,
+                series_label="EUR/GBP reference rate",
+            ),
+        ),
+        fx_reference_rates=(
+            FXReferenceRateDefinitionRecord(
+                market_series_id=market_series_id,
+                base_currency="EUR",
+                quote_currency="GBP",
+                convention_ref="market-data/fx/reference-rate-v1",
+            ),
+        ),
+        sources=(
+            SourceRecord(
+                source_id=source_id,
+                tier=SourceTier.PRIMARY_TRANSACTION_OR_ISSUER,
+                source_type=SourceType.OFFERING_DOCUMENT,
+                publisher=f"Example Issuer {sequence} plc",
+                title="Canonical transaction source",
+                access_date=date(2026, 9, 18),
+                document_date=date(2026, 9, 17),
+                url="https://example.invalid/canonical-source",
+                document_version="final",
+                notes="Writer integration fixture",
+            ),
+        ),
+        evidence=(
+            EvidenceRecord(
+                evidence_id=evidence_one,
+                source_id=source_id,
+                locator="Pricing terms / FX reference",
+                label="Primary evidence",
+            ),
+            EvidenceRecord(
+                evidence_id=evidence_two,
+                source_id=source_id,
+                locator="Transaction parties",
+                label="Relationship evidence",
+            ),
+        ),
+        observations=(
+            ObservationRecord(
+                observation_id=disclosed_observation_id,
+                subject_type=EntityType.MARKET_SERIES,
+                subject_id=market_series_id,
+                field_name="market_series.fx_rate",
+                as_of_date=date(2026, 9, 17),
+                verification_state=VerificationState.PRIMARY_VERIFIED,
+                verified_at=datetime(
+                    2026,
+                    9,
+                    17,
+                    12,
+                    0,
+                    tzinfo=UTC,
+                ),
+                value=Decimal("0.8650"),
+                value_class=ValueClass.DISCLOSED,
+                evidence_ids=(
+                    evidence_two,
+                    evidence_one,
+                ),
+            ),
+            ObservationRecord(
+                observation_id=calculated_observation_id,
+                subject_type=EntityType.MARKET_SERIES,
+                subject_id=market_series_id,
+                field_name="market_series.fx_rate",
+                as_of_date=date(2026, 9, 18),
+                verification_state=VerificationState.PENDING,
+                value=Decimal("0.8660"),
+                value_class=ValueClass.CALCULATED,
+                input_observation_ids=(
+                    disclosed_observation_id,
+                ),
+                derivation_ref="tests/persistence-writer/fx-derived",
+            ),
+            ObservationRecord(
+                observation_id=missing_observation_id,
+                subject_type=EntityType.MARKET_SERIES,
+                subject_id=market_series_id,
+                field_name="market_series.fx_rate",
+                as_of_date=date(2026, 9, 19),
+                verification_state=VerificationState.PENDING,
+                missing_state=MissingDataState.PENDING_VERIFICATION,
+                notes="Awaiting next market observation",
+            ),
+        ),
+    )
+
+
+def _count(engine: Engine, table_name: str) -> int:
+    if table_name not in CANONICAL_TABLES:
+        raise ValueError(f"Unknown canonical table: {table_name!r}")
+
+    with engine.connect() as connection:
+        return connection.execute(
+            sa.text(
+                f"SELECT count(*) FROM {table_name}"
+            )
+        ).scalar_one()
+
+
+def test_complete_dataset_persists_as_one_canonical_unit(
+    engine: Engine,
+) -> None:
+    """Every frozen record and lineage junction reaches PostgreSQL."""
+
+    dataset = _dataset(1)
+
+    persist_canonical_dataset(engine, dataset)
+
+    expected_counts = {
+        "issuers": 1,
+        "parties": 1,
+        "transactions": 1,
+        "instruments": 1,
+        "participations": 1,
+        "market_series": 1,
+        "fx_reference_rate_definitions": 1,
+        "sources": 1,
+        "evidence": 2,
+        "issuer_identifiers": 1,
+        "transaction_lifecycle_events": 1,
+        "observation_subjects": 6,
+        "observations": 3,
+        "issuer_identifier_evidence": 2,
+        "participation_evidence": 2,
+        "transaction_lifecycle_event_evidence": 2,
+        "observation_evidence": 2,
+        "observation_inputs": 1,
+    }
+
+    assert {
+        table: _count(engine, table)
+        for table in expected_counts
+    } == expected_counts
+
+    with engine.connect() as connection:
+        observation_rows = connection.execute(
+            sa.text(
+                """
+                SELECT
+                    observation_id,
+                    scalar_type,
+                    decimal_value,
+                    value_class,
+                    missing_state
+                FROM observations
+                ORDER BY observation_id
+                """
+            )
+        ).mappings().all()
+
+        assert observation_rows == [
+            {
+                "observation_id": "OBS000000011",
+                "scalar_type": "DECIMAL",
+                "decimal_value": Decimal("0.8650"),
+                "value_class": "DISCLOSED",
+                "missing_state": None,
+            },
+            {
+                "observation_id": "OBS000000012",
+                "scalar_type": "DECIMAL",
+                "decimal_value": Decimal("0.8660"),
+                "value_class": "CALCULATED",
+                "missing_state": None,
+            },
+            {
+                "observation_id": "OBS000000013",
+                "scalar_type": None,
+                "decimal_value": None,
+                "value_class": None,
+                "missing_state": "PENDING_VERIFICATION",
+            },
+        ]
+
+        observation_evidence = connection.execute(
+            sa.text(
+                """
+                SELECT
+                    evidence_id,
+                    evidence_ordinal
+                FROM observation_evidence
+                WHERE observation_id = 'OBS000000011'
+                ORDER BY evidence_ordinal
+                """
+            )
+        ).all()
+
+        assert observation_evidence == [
+            ("EVD000000012", 0),
+            ("EVD000000011", 1),
+        ]
+
+        input_lineage = connection.execute(
+            sa.text(
+                """
+                SELECT
+                    input_observation_id,
+                    input_ordinal
+                FROM observation_inputs
+                WHERE derived_observation_id = 'OBS000000012'
+                ORDER BY input_ordinal
+                """
+            )
+        ).all()
+
+        assert input_lineage == [
+            ("OBS000000011", 0),
+        ]
+
+        identifier_evidence = connection.execute(
+            sa.text(
+                """
+                SELECT
+                    iie.evidence_id,
+                    iie.evidence_ordinal
+                FROM issuer_identifier_evidence AS iie
+                JOIN issuer_identifiers AS ii
+                  ON ii.issuer_identifier_row_id
+                   = iie.issuer_identifier_row_id
+                WHERE ii.issuer_id = 'ISS000000001'
+                ORDER BY iie.evidence_ordinal
+                """
+            )
+        ).all()
+
+        assert identifier_evidence == [
+            ("EVD000000011", 0),
+            ("EVD000000012", 1),
+        ]
+
+
+def test_database_failure_rolls_back_complete_dataset(
+    engine: Engine,
+) -> None:
+    """A late relational failure cannot leave earlier entities behind."""
+
+    dataset = _dataset(2)
+
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO sources (
+                    source_id,
+                    source_tier,
+                    source_type,
+                    publisher,
+                    title,
+                    access_date,
+                    url
+                )
+                VALUES (
+                    'SRC000000002',
+                    1,
+                    'OFFERING_DOCUMENT',
+                    'Pre-existing publisher',
+                    'Pre-existing source',
+                    DATE '2026-09-18',
+                    'https://example.invalid/pre-existing'
+                )
+                """
+            )
+        )
+
+    with pytest.raises(IntegrityError):
+        persist_canonical_dataset(engine, dataset)
+
+    # The conflicting pre-existing source remains, but every write performed
+    # earlier in persist_canonical_dataset() must have rolled back.
+    assert _count(engine, "sources") == 1
+    assert _count(engine, "issuers") == 0
+    assert _count(engine, "parties") == 0
+    assert _count(engine, "transactions") == 0
+    assert _count(engine, "instruments") == 0
+    assert _count(engine, "market_series") == 0
+    assert _count(engine, "observation_subjects") == 0
+    assert _count(engine, "observations") == 0
