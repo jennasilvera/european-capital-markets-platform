@@ -190,3 +190,23 @@ Dependency ranges should stay on stable release lines.
 The project should not adopt beta, release-candidate, or development database
 or persistence-library releases for the canonical path without an explicit
 reason and compatibility review.
+
+## PostgreSQL Extensions
+
+The initial canonical schema requires PostgreSQL's `btree_gist` extension.
+
+The extension supplies GiST equality operator classes used to enforce the
+frozen issuer-identity collision contract:
+
+- a LEI may have only one canonical assignment;
+- a non-LEI identifier may be reused only when assignment-validity intervals
+  for the same identifier namespace do not overlap.
+
+Validity intervals use half-open `[valid_from, valid_to)` semantics. Therefore
+an assignment ending on a date does not conflict with a successor beginning on
+that same date.
+
+The migration installs `btree_gist` with `CREATE EXTENSION IF NOT EXISTS`.
+
+Downgrade intentionally leaves the extension installed because extensions are
+shared database infrastructure rather than canonical platform data.
