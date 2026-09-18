@@ -36,3 +36,54 @@ jobs:
 
       - name: Whitespace check
         run: git diff --check
+
+  postgres-integration:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18.6-bookworm
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: european_capital_markets_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d european_capital_markets_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/european_capital_markets_test
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --locked --dev
+
+      - name: Upgrade canonical schema
+        run: uv run alembic upgrade head
+
+      - name: PostgreSQL migration integration tests
+        run: uv run pytest tests/integration/test_canonical_schema_migration.py -q
+
+      - name: Downgrade canonical schema
+        run: uv run alembic downgrade base
+
+      - name: Re-upgrade canonical schema
+        run: uv run alembic upgrade head
+
+      - name: Verify schema after migration cycle
+        run: uv run pytest tests/integration/test_canonical_schema_migration.py -q
