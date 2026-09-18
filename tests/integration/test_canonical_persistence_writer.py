@@ -53,6 +53,7 @@ from european_capital_markets.domain.taxonomy import (
     VerificationState,
 )
 from european_capital_markets.persistence import (
+    load_canonical_dataset,
     persist_canonical_dataset,
 )
 
@@ -470,6 +471,22 @@ def test_complete_dataset_persists_as_one_canonical_unit(
             ("EVD000000011", 0),
             ("EVD000000012", 1),
         ]
+
+
+
+def test_complete_dataset_round_trips_unchanged(
+    engine: Engine,
+) -> None:
+    """Persisted governed records reconstruct without information loss."""
+
+    dataset = _dataset(3)
+
+    persist_canonical_dataset(engine, dataset)
+
+    reconstructed = load_canonical_dataset(engine)
+
+    assert reconstructed == dataset
+
 
 
 def test_database_failure_rolls_back_complete_dataset(
