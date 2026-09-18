@@ -46,6 +46,12 @@ def test_product_families_are_explicit() -> None:
 def test_market_series_types_are_explicit() -> None:
     assert set(_values(MarketSeriesType)) == {
         "FX_REFERENCE_RATE",
+        "POLICY_RATE",
+        "GOVERNMENT_YIELD",
+        "SWAP_RATE",
+        "CREDIT_SPREAD",
+        "EQUITY_INDEX",
+        "VOLATILITY_INDEX",
     }
 
 
