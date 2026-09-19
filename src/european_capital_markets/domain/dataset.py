@@ -26,8 +26,14 @@ from european_capital_markets.domain.lineage import (
     validate_lineage_bundle,
 )
 from european_capital_markets.domain.market_data import (
+    CreditSpreadDefinitionRecord,
+    EquityIndexDefinitionRecord,
     FXReferenceRateDefinitionRecord,
+    GovernmentYieldDefinitionRecord,
     MarketSeriesRecord,
+    PolicyRateDefinitionRecord,
+    SwapRateDefinitionRecord,
+    VolatilityIndexDefinitionRecord,
     validate_market_data_bundle,
 )
 from european_capital_markets.domain.participations import (
@@ -55,6 +61,12 @@ class CanonicalDataset:
     lifecycle_events: tuple[TransactionLifecycleEventRecord, ...] = ()
     market_series: tuple[MarketSeriesRecord, ...] = ()
     fx_reference_rates: tuple[FXReferenceRateDefinitionRecord, ...] = ()
+    policy_rates: tuple[PolicyRateDefinitionRecord, ...] = ()
+    government_yields: tuple[GovernmentYieldDefinitionRecord, ...] = ()
+    swap_rates: tuple[SwapRateDefinitionRecord, ...] = ()
+    credit_spreads: tuple[CreditSpreadDefinitionRecord, ...] = ()
+    equity_indices: tuple[EquityIndexDefinitionRecord, ...] = ()
+    volatility_indices: tuple[VolatilityIndexDefinitionRecord, ...] = ()
     sources: tuple[SourceRecord, ...] = ()
     evidence: tuple[EvidenceRecord, ...] = ()
     observations: tuple[ObservationRecord, ...] = ()
@@ -111,6 +123,12 @@ def validate_canonical_dataset(dataset: CanonicalDataset) -> None:
         market_series=dataset.market_series,
         fx_reference_rates=dataset.fx_reference_rates,
         observations=dataset.observations,
+        policy_rates=dataset.policy_rates,
+        government_yields=dataset.government_yields,
+        swap_rates=dataset.swap_rates,
+        credit_spreads=dataset.credit_spreads,
+        equity_indices=dataset.equity_indices,
+        volatility_indices=dataset.volatility_indices,
     )
 
     validate_cross_observation_consistency(

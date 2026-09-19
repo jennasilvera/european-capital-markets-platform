@@ -312,3 +312,135 @@ def test_lifecycle_event_requires_existing_transaction() -> None:
         match="Unknown transaction reference",
     ):
         validate_canonical_dataset(dataset)
+
+
+def test_canonical_dataset_accepts_all_phase1_market_definition_families() -> None:
+    from european_capital_markets.domain.market_data import (
+        CreditSpreadDefinitionRecord,
+        EquityIndexDefinitionRecord,
+        GovernmentYieldDefinitionRecord,
+        PolicyRateDefinitionRecord,
+        SwapRateDefinitionRecord,
+        VolatilityIndexDefinitionRecord,
+    )
+
+    cases = (
+        (
+            "policy_rates",
+            MarketSeriesType.POLICY_RATE,
+            PolicyRateDefinitionRecord(
+                market_series_id="MKS000000100",
+                authority="European Central Bank",
+                jurisdiction="Euro Area",
+                currency="EUR",
+                rate_name="Deposit Facility Rate",
+                convention_ref="market-data/ecb/policy-rate-v1",
+            ),
+        ),
+        (
+            "government_yields",
+            MarketSeriesType.GOVERNMENT_YIELD,
+            GovernmentYieldDefinitionRecord(
+                market_series_id="MKS000000100",
+                sovereign="Federal Republic of Germany",
+                jurisdiction="Germany",
+                currency="EUR",
+                tenor_months=120,
+                benchmark_ref="German sovereign 10Y benchmark",
+                convention_ref="market-data/government-yield-v1",
+            ),
+        ),
+        (
+            "swap_rates",
+            MarketSeriesType.SWAP_RATE,
+            SwapRateDefinitionRecord(
+                market_series_id="MKS000000100",
+                currency="EUR",
+                tenor_months=60,
+                floating_rate_ref="EURIBOR-6M",
+                fixed_leg_convention_ref="EUR-IRS-fixed-leg-v1",
+                convention_ref="market-data/swap-rate-v1",
+            ),
+        ),
+        (
+            "credit_spreads",
+            MarketSeriesType.CREDIT_SPREAD,
+            CreditSpreadDefinitionRecord(
+                market_series_id="MKS000000100",
+                benchmark_family="European Corporate Credit",
+                currency="EUR",
+                credit_universe="Investment Grade",
+                spread_measure="OAS",
+                convention_ref="market-data/credit-spread-v1",
+            ),
+        ),
+        (
+            "equity_indices",
+            MarketSeriesType.EQUITY_INDEX,
+            EquityIndexDefinitionRecord(
+                market_series_id="MKS000000100",
+                index_name="STOXX Europe 600",
+                universe="Europe",
+                index_variant_ref="PRICE",
+                methodology_ref="market-data/equity-index-v1",
+            ),
+        ),
+        (
+            "volatility_indices",
+            MarketSeriesType.VOLATILITY_INDEX,
+            VolatilityIndexDefinitionRecord(
+                market_series_id="MKS000000100",
+                index_name="European Equity Volatility",
+                underlying_ref="STOXX Europe 600",
+                methodology_ref="market-data/volatility-index-v1",
+                horizon_days=30,
+            ),
+        ),
+    )
+
+    for attribute_name, series_type, definition in cases:
+        dataset = CanonicalDataset(
+            market_series=(
+                MarketSeriesRecord(
+                    market_series_id="MKS000000100",
+                    series_type=series_type,
+                    series_label=f"Canonical {series_type.value}",
+                ),
+            ),
+            **{
+                attribute_name: (definition,),
+            },
+        )
+
+        validate_canonical_dataset(dataset)
+
+
+def test_canonical_dataset_forwards_phase1_definition_references() -> None:
+    from european_capital_markets.domain.market_data import (
+        PolicyRateDefinitionRecord,
+    )
+
+    dataset = CanonicalDataset(
+        market_series=(
+            MarketSeriesRecord(
+                market_series_id="MKS000000100",
+                series_type=MarketSeriesType.POLICY_RATE,
+            ),
+        ),
+        policy_rates=(
+            PolicyRateDefinitionRecord(
+                market_series_id="MKS000000101",
+                authority="European Central Bank",
+                jurisdiction="Euro Area",
+                currency="EUR",
+                rate_name="Deposit Facility Rate",
+                convention_ref="market-data/ecb/policy-rate-v1",
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="references unknown market series",
+    ):
+        validate_canonical_dataset(dataset)

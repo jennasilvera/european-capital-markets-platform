@@ -31,6 +31,7 @@ def persist_canonical_dataset(
     """
 
     validate_canonical_dataset(dataset)
+    _validate_persistence_support(dataset)
 
     with engine.begin() as connection:
         _persist_validated_dataset(connection, dataset)
@@ -41,6 +42,40 @@ def persist_canonical_dataset(
         connection.execute(
             sa.text("SET CONSTRAINTS ALL IMMEDIATE")
         )
+
+
+_UNSUPPORTED_MARKET_DEFINITION_FAMILIES = (
+    ("policy_rates", "POLICY_RATE"),
+    ("government_yields", "GOVERNMENT_YIELD"),
+    ("swap_rates", "SWAP_RATE"),
+    ("credit_spreads", "CREDIT_SPREAD"),
+    ("equity_indices", "EQUITY_INDEX"),
+    ("volatility_indices", "VOLATILITY_INDEX"),
+)
+
+
+def _validate_persistence_support(
+    dataset: CanonicalDataset,
+) -> None:
+    """Reject valid domain records the current schema cannot store losslessly."""
+
+    unsupported = tuple(
+        family_name
+        for attribute_name, family_name
+        in _UNSUPPORTED_MARKET_DEFINITION_FAMILIES
+        if getattr(dataset, attribute_name)
+    )
+
+    if not unsupported:
+        return
+
+    raise ValueError(
+        "Canonical PostgreSQL persistence does not yet support "
+        "market-series definition families: "
+        f"{', '.join(unsupported)}. "
+        "A schema migration and matching writer/reader support are "
+        "required before these records may be persisted."
+    )
 
 
 def _persist_validated_dataset(
