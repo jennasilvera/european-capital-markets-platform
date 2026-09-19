@@ -26,6 +26,12 @@ EXPECTED_TABLES = {
     "participations",
     "market_series",
     "fx_reference_rate_definitions",
+    "policy_rate_definitions",
+    "government_yield_definitions",
+    "swap_rate_definitions",
+    "credit_spread_definitions",
+    "equity_index_definitions",
+    "volatility_index_definitions",
     "sources",
     "evidence",
     "issuer_identifiers",
@@ -699,3 +705,655 @@ def test_restrictive_source_delete_preserves_evidence(
         )
 
     assert _sqlstate(exc_info.value) == "23001"
+
+
+def _insert_market_series(
+    connection: Connection,
+    *,
+    market_series_id: str,
+    series_type: str,
+) -> None:
+    """Insert one observable market series and its registry row."""
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO market_series (
+                market_series_id,
+                series_type
+            )
+            VALUES (
+                :market_series_id,
+                :series_type
+            )
+            """
+        ),
+        {
+            "market_series_id": market_series_id,
+            "series_type": series_type,
+        },
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO observation_subjects (
+                subject_type,
+                subject_id
+            )
+            VALUES (
+                'MARKET_SERIES',
+                :market_series_id
+            )
+            """
+        ),
+        {"market_series_id": market_series_id},
+    )
+
+
+def test_phase1_market_definition_families_are_database_valid(
+    connection: Connection,
+) -> None:
+    """Every frozen market-series type has one valid relational extension."""
+
+    cases = (
+        ("MKS000000101", "FX_REFERENCE_RATE"),
+        ("MKS000000102", "POLICY_RATE"),
+        ("MKS000000103", "GOVERNMENT_YIELD"),
+        ("MKS000000104", "SWAP_RATE"),
+        ("MKS000000105", "CREDIT_SPREAD"),
+        ("MKS000000106", "EQUITY_INDEX"),
+        ("MKS000000107", "VOLATILITY_INDEX"),
+    )
+
+    for market_series_id, series_type in cases:
+        _insert_market_series(
+            connection,
+            market_series_id=market_series_id,
+            series_type=series_type,
+        )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO fx_reference_rate_definitions (
+                market_series_id,
+                base_currency,
+                quote_currency,
+                convention_ref
+            )
+            VALUES (
+                'MKS000000101',
+                'EUR',
+                'GBP',
+                'market-data/fx/reference-rate-v1'
+            )
+            """
+        )
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO policy_rate_definitions (
+                market_series_id,
+                authority,
+                jurisdiction,
+                currency,
+                rate_name,
+                convention_ref
+            )
+            VALUES (
+                'MKS000000102',
+                'European Central Bank',
+                'Euro Area',
+                'EUR',
+                'Deposit Facility Rate',
+                'market-data/ecb/policy-rate-v1'
+            )
+            """
+        )
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO government_yield_definitions (
+                market_series_id,
+                sovereign,
+                jurisdiction,
+                currency,
+                tenor_months,
+                benchmark_ref,
+                convention_ref
+            )
+            VALUES (
+                'MKS000000103',
+                'Federal Republic of Germany',
+                'Germany',
+                'EUR',
+                120,
+                'German sovereign 10Y benchmark',
+                'market-data/government-yield-v1'
+            )
+            """
+        )
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO swap_rate_definitions (
+                market_series_id,
+                currency,
+                tenor_months,
+                floating_rate_ref,
+                fixed_leg_convention_ref,
+                convention_ref
+            )
+            VALUES (
+                'MKS000000104',
+                'EUR',
+                60,
+                'EURIBOR-6M',
+                'EUR-IRS-fixed-leg-v1',
+                'market-data/swap-rate-v1'
+            )
+            """
+        )
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO credit_spread_definitions (
+                market_series_id,
+                benchmark_family,
+                currency,
+                credit_universe,
+                rating_segment,
+                sector_segment,
+                spread_measure,
+                convention_ref
+            )
+            VALUES (
+                'MKS000000105',
+                'European Corporate Credit',
+                'EUR',
+                'Investment Grade',
+                NULL,
+                NULL,
+                'OAS',
+                'market-data/credit-spread-v1'
+            )
+            """
+        )
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO equity_index_definitions (
+                market_series_id,
+                index_name,
+                universe,
+                index_variant_ref,
+                methodology_ref
+            )
+            VALUES (
+                'MKS000000106',
+                'STOXX Europe 600',
+                'Europe',
+                'PRICE',
+                'market-data/equity-index-v1'
+            )
+            """
+        )
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO volatility_index_definitions (
+                market_series_id,
+                index_name,
+                underlying_ref,
+                horizon_days,
+                methodology_ref
+            )
+            VALUES (
+                'MKS000000107',
+                'European Equity Volatility',
+                'STOXX Europe 600',
+                30,
+                'market-data/volatility-index-v1'
+            )
+            """
+        )
+    )
+
+    connection.execute(sa.text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+
+def test_market_series_requires_exactly_one_definition(
+    connection: Connection,
+) -> None:
+    """A market series cannot commit without its type-specific extension."""
+
+    _insert_market_series(
+        connection,
+        market_series_id="MKS000000201",
+        series_type="POLICY_RATE",
+    )
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(sa.text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+    assert _sqlstate(exc_info.value) == "23514"
+
+
+def test_market_definition_family_must_match_parent_type(
+    connection: Connection,
+) -> None:
+    """A definition cannot be attached to a different market-series family."""
+
+    _insert_market_series(
+        connection,
+        market_series_id="MKS000000202",
+        series_type="POLICY_RATE",
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO government_yield_definitions (
+                market_series_id,
+                sovereign,
+                jurisdiction,
+                currency,
+                tenor_months,
+                benchmark_ref,
+                convention_ref
+            )
+            VALUES (
+                'MKS000000202',
+                'Federal Republic of Germany',
+                'Germany',
+                'EUR',
+                120,
+                'German sovereign 10Y benchmark',
+                'market-data/government-yield-v1'
+            )
+            """
+        )
+    )
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(sa.text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+    assert _sqlstate(exc_info.value) == "23514"
+
+
+def test_duplicate_policy_rate_identity_is_rejected(
+    connection: Connection,
+) -> None:
+    """Database uniqueness mirrors the non-null policy-rate semantic key."""
+
+    for market_series_id in (
+        "MKS000000203",
+        "MKS000000204",
+    ):
+        _insert_market_series(
+            connection,
+            market_series_id=market_series_id,
+            series_type="POLICY_RATE",
+        )
+
+    statement = sa.text(
+        """
+        INSERT INTO policy_rate_definitions (
+            market_series_id,
+            authority,
+            jurisdiction,
+            currency,
+            rate_name,
+            convention_ref
+        )
+        VALUES (
+            :market_series_id,
+            'European Central Bank',
+            'Euro Area',
+            'EUR',
+            'Deposit Facility Rate',
+            'market-data/ecb/policy-rate-v1'
+        )
+        """
+    )
+
+    connection.execute(
+        statement,
+        {"market_series_id": "MKS000000203"},
+    )
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(
+            statement,
+            {"market_series_id": "MKS000000204"},
+        )
+
+    assert _sqlstate(exc_info.value) == "23505"
+
+
+def test_credit_spread_identity_treats_null_segments_as_equal(
+    connection: Connection,
+) -> None:
+    """NULL optional segments retain Python None semantic-key equality."""
+
+    for market_series_id in (
+        "MKS000000205",
+        "MKS000000206",
+    ):
+        _insert_market_series(
+            connection,
+            market_series_id=market_series_id,
+            series_type="CREDIT_SPREAD",
+        )
+
+    statement = sa.text(
+        """
+        INSERT INTO credit_spread_definitions (
+            market_series_id,
+            benchmark_family,
+            currency,
+            credit_universe,
+            rating_segment,
+            sector_segment,
+            spread_measure,
+            convention_ref
+        )
+        VALUES (
+            :market_series_id,
+            'European Corporate Credit',
+            'EUR',
+            'Investment Grade',
+            NULL,
+            NULL,
+            'OAS',
+            'market-data/credit-spread-v1'
+        )
+        """
+    )
+
+    connection.execute(
+        statement,
+        {"market_series_id": "MKS000000205"},
+    )
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(
+            statement,
+            {"market_series_id": "MKS000000206"},
+        )
+
+    assert _sqlstate(exc_info.value) == "23505"
+
+
+def test_volatility_identity_treats_null_horizon_as_equal(
+    connection: Connection,
+) -> None:
+    """NULL horizon preserves Python None semantic-key equality."""
+
+    for market_series_id in (
+        "MKS000000207",
+        "MKS000000208",
+    ):
+        _insert_market_series(
+            connection,
+            market_series_id=market_series_id,
+            series_type="VOLATILITY_INDEX",
+        )
+
+    statement = sa.text(
+        """
+        INSERT INTO volatility_index_definitions (
+            market_series_id,
+            index_name,
+            underlying_ref,
+            horizon_days,
+            methodology_ref
+        )
+        VALUES (
+            :market_series_id,
+            'European Equity Volatility',
+            'STOXX Europe 600',
+            NULL,
+            'market-data/volatility-index-v1'
+        )
+        """
+    )
+
+    connection.execute(
+        statement,
+        {"market_series_id": "MKS000000207"},
+    )
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(
+            statement,
+            {"market_series_id": "MKS000000208"},
+        )
+
+    assert _sqlstate(exc_info.value) == "23505"
+
+
+def test_market_definition_positive_dimensions_are_enforced(
+    connection: Connection,
+) -> None:
+    """Tenor and optional horizon constraints match frozen domain validation."""
+
+    _insert_market_series(
+        connection,
+        market_series_id="MKS000000209",
+        series_type="GOVERNMENT_YIELD",
+    )
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO government_yield_definitions (
+                    market_series_id,
+                    sovereign,
+                    jurisdiction,
+                    currency,
+                    tenor_months,
+                    benchmark_ref,
+                    convention_ref
+                )
+                VALUES (
+                    'MKS000000209',
+                    'Federal Republic of Germany',
+                    'Germany',
+                    'EUR',
+                    0,
+                    'German sovereign benchmark',
+                    'market-data/government-yield-v1'
+                )
+                """
+            )
+        )
+
+    assert _sqlstate(exc_info.value) == "23514"
+
+
+def test_market_series_type_cannot_diverge_from_existing_definition(
+    connection: Connection,
+) -> None:
+    """Changing the parent family cannot orphan the extension semantically."""
+
+    _insert_market_series(
+        connection,
+        market_series_id="MKS000000210",
+        series_type="POLICY_RATE",
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO policy_rate_definitions (
+                market_series_id,
+                authority,
+                jurisdiction,
+                currency,
+                rate_name,
+                convention_ref
+            )
+            VALUES (
+                'MKS000000210',
+                'European Central Bank',
+                'Euro Area',
+                'EUR',
+                'Deposit Facility Rate',
+                'market-data/ecb/policy-rate-v2'
+            )
+            """
+        )
+    )
+
+    connection.execute(sa.text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(
+            sa.text(
+                """
+                UPDATE market_series
+                SET series_type = 'SWAP_RATE'
+                WHERE market_series_id = 'MKS000000210'
+                """
+            )
+        )
+
+    assert _sqlstate(exc_info.value) == "23514"
+
+
+def test_definition_restricts_parent_market_series_delete(
+    connection: Connection,
+) -> None:
+    """Type-specific definitions cannot be cascade-erased with the parent."""
+
+    _insert_market_series(
+        connection,
+        market_series_id="MKS000000211",
+        series_type="POLICY_RATE",
+    )
+
+    connection.execute(
+        sa.text(
+            """
+            INSERT INTO policy_rate_definitions (
+                market_series_id,
+                authority,
+                jurisdiction,
+                currency,
+                rate_name,
+                convention_ref
+            )
+            VALUES (
+                'MKS000000211',
+                'European Central Bank',
+                'Euro Area',
+                'EUR',
+                'Deposit Facility Rate',
+                'market-data/ecb/policy-rate-v3'
+            )
+            """
+        )
+    )
+
+    connection.execute(sa.text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(
+            sa.text(
+                """
+                DELETE FROM market_series
+                WHERE market_series_id = 'MKS000000211'
+                """
+            )
+        )
+
+    assert _sqlstate(exc_info.value) == "23001"
+
+
+def test_swap_rate_tenor_must_be_positive(
+    connection: Connection,
+) -> None:
+    """Swap tenor positivity is enforced independently by PostgreSQL."""
+
+    _insert_market_series(
+        connection,
+        market_series_id="MKS000000212",
+        series_type="SWAP_RATE",
+    )
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO swap_rate_definitions (
+                    market_series_id,
+                    currency,
+                    tenor_months,
+                    floating_rate_ref,
+                    fixed_leg_convention_ref,
+                    convention_ref
+                )
+                VALUES (
+                    'MKS000000212',
+                    'EUR',
+                    0,
+                    'EURIBOR-6M',
+                    'EUR-IRS-fixed-leg-v1',
+                    'market-data/swap-rate-v1'
+                )
+                """
+            )
+        )
+
+    assert _sqlstate(exc_info.value) == "23514"
+
+
+def test_volatility_horizon_must_be_positive_when_present(
+    connection: Connection,
+) -> None:
+    """A populated volatility horizon cannot be zero or negative."""
+
+    _insert_market_series(
+        connection,
+        market_series_id="MKS000000213",
+        series_type="VOLATILITY_INDEX",
+    )
+
+    with pytest.raises(IntegrityError) as exc_info:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO volatility_index_definitions (
+                    market_series_id,
+                    index_name,
+                    underlying_ref,
+                    horizon_days,
+                    methodology_ref
+                )
+                VALUES (
+                    'MKS000000213',
+                    'European Equity Volatility',
+                    'STOXX Europe 600',
+                    0,
+                    'market-data/volatility-index-v1'
+                )
+                """
+            )
+        )
+
+    assert _sqlstate(exc_info.value) == "23514"
