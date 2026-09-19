@@ -216,23 +216,62 @@ test reproducible.
 
 Synthetic fixtures should be used where redistribution rights are absent.
 
-## Deliberately Deferred
+## First Controlled Provider Implementation
 
-This contract does not yet select or implement:
+Step 13B introduces the first provider transport and parser against the
+European Central Bank Data Portal.
 
-- an HTTP client;
+The implementation uses the ECB SDMX 2.1 data endpoint with CSV output and a
+bounded `lastNObservations` query.
+
+The first supported controlled series is the ECB Deposit Facility Rate
+reference mapping already present in the market-series catalog.
+
+The adapter validates provider semantics observed in the reviewed ECB CSV
+contract, including:
+
+- the full controlled `KEY`;
+- daily frequency (`FREQ=D`);
+- euro currency (`CURRENCY=EUR`);
+- Deposit Facility Rate provider identifier (`PROVIDER_FM_ID=DFR`);
+- level data type (`DATA_TYPE_FM=LEV`);
+- provider unit `PCPA`.
+
+`PCPA` is normalized into the canonical `PERCENT` observation unit. The
+provider-specific unit code does not enter the canonical domain taxonomy.
+
+HTTPX is the selected HTTP client for this provider implementation. TLS
+verification remains enabled. The client uses bounded connect and network
+timeouts and follows redirects.
+
+Deterministic tests use HTTPX's in-process mock transport. CI therefore does
+not depend on ECB network availability.
+
+The provider adapter returns:
+
+1. transport response bytes and safe response metadata; and
+2. provider-neutral `NormalizedMarketDatum` records.
+
+It deliberately does not fabricate an `archived_location`. Raw bytes must
+first be durably landed by the later raw-artifact writer before a
+`RawRetrievalArtifact` and canonical source/evidence lineage are constructed.
+
+## Remaining Deliberately Deferred
+
+The following remain separate reviewed increments:
+
 - retry/backoff policy;
 - rate-limit handling;
-- provider credentials;
-- provider API schemas;
-- provider adapters;
+- provider credentials and entitlement mechanisms;
 - ingestion scheduling;
-- raw-artifact filesystem writer;
+- immutable raw-artifact filesystem writer;
 - staged-data persistence;
 - ingestion-run audit persistence;
 - exception/quarantine persistence;
 - canonical identifier allocation;
 - idempotency/revision policy for repeated observations;
-- live market-data retrieval.
+- canonical persistence orchestration;
+- additional provider adapters.
 
-Those decisions follow as separate reviewed increments.
+Live requests may be used as explicit local source-review probes, but normal
+unit and CI tests remain deterministic and network-independent.
