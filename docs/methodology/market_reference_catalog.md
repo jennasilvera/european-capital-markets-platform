@@ -210,20 +210,28 @@ reimplementing them.
 
 ## Boundary With Ingestion
 
-This catalog structure does not:
+The catalog may select concrete source/provider mappings and stable provider
+identifiers after those selections have been separately reviewed.
 
-- select live market providers yet;
+Those reference selections do not themselves implement ingestion.
+
+The catalog does not:
+
 - freeze provider API schemas;
-- populate provider identifiers;
+- store provider credentials;
 - fetch market values;
 - create canonical observations;
-- create `SourceRecord` or `EvidenceRecord` objects;
+- create observation `SourceRecord` or `EvidenceRecord` objects;
 - schedule recurring ingestion;
 - calculate market changes;
 - generate market commentary.
 
-Those capabilities follow only after concrete reference mappings are reviewed
-and added.
+A provider identifier in the catalog identifies the reviewed reference
+selection. A later ingestion adapter may require additional endpoint,
+distribution, field, or vendor-specific identifiers. Those operational
+identifiers must not silently redefine the canonical economic series.
+
+Observation provenance remains separate from reference selection.
 
 ## Change Control
 

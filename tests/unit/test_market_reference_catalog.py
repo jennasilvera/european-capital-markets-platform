@@ -150,21 +150,14 @@ def test_committed_reference_catalog_contains_reviewed_mappings() -> None:
     )
 
     assert catalog.catalog_version == CATALOG_VERSION
-    assert len(catalog.entries) == 9
+    assert len(catalog.entries) == 11
 
     assert tuple(
         entry.market_series.market_series_id
         for entry in catalog.entries
-    ) == (
-        "MKS000000001",
-        "MKS000000002",
-        "MKS000000003",
-        "MKS000000004",
-        "MKS000000005",
-        "MKS000000006",
-        "MKS000000007",
-        "MKS000000008",
-        "MKS000000009",
+    ) == tuple(
+        f"MKS{i:09d}"
+        for i in range(1, 12)
     )
 
     assert tuple(
@@ -180,10 +173,16 @@ def test_committed_reference_catalog_contains_reviewed_mappings() -> None:
         MarketSeriesType.SWAP_RATE,
         MarketSeriesType.EQUITY_INDEX,
         MarketSeriesType.VOLATILITY_INDEX,
+        MarketSeriesType.CREDIT_SPREAD,
+        MarketSeriesType.CREDIT_SPREAD,
     )
 
 
 def test_committed_reference_catalog_uses_reviewed_provider_ids() -> None:
+    from european_capital_markets.domain.market_data import (
+        CreditSpreadDefinitionRecord,
+    )
+
     catalog = load_market_series_catalog(
         Path("data/reference/market_series_catalog.json")
     )
@@ -208,6 +207,8 @@ def test_committed_reference_catalog_uses_reviewed_provider_ids() -> None:
         "MKS000000007": "GB00BL54030",
         "MKS000000008": "SXXP",
         "MKS000000009": "V2TX",
+        "MKS000000010": "ER00",
+        "MKS000000011": "HE00",
     }
 
     assert (
@@ -239,6 +240,8 @@ def test_committed_reference_catalog_uses_reviewed_provider_ids() -> None:
         "MKS000000007",
         "MKS000000008",
         "MKS000000009",
+        "MKS000000010",
+        "MKS000000011",
     ):
         assert (
             entries[series_id].source_mapping.source_tier
@@ -249,10 +252,52 @@ def test_committed_reference_catalog_uses_reviewed_provider_ids() -> None:
             is SourceType.MARKET_DATA
         )
 
-    assert MarketSeriesType.CREDIT_SPREAD not in {
-        entry.market_series.series_type
-        for entry in catalog.entries
+    expected_credit = {
+        "MKS000000010": (
+            "ICE BofA Euro Corporate Index",
+            "INVESTMENT_GRADE",
+            "ER00",
+        ),
+        "MKS000000011": (
+            "ICE BofA Euro High Yield Index",
+            "BELOW_INVESTMENT_GRADE",
+            "HE00",
+        ),
     }
+
+    for series_id, (
+        benchmark_family,
+        rating_segment,
+        provider_id,
+    ) in expected_credit.items():
+        entry = entries[series_id]
+        definition = entry.definition
+
+        assert isinstance(
+            definition,
+            CreditSpreadDefinitionRecord,
+        )
+        assert definition.benchmark_family == benchmark_family
+        assert definition.currency == "EUR"
+        assert (
+            definition.credit_universe
+            == (
+                "Euro-denominated corporate securities in Eurobond "
+                "or euro-member domestic markets"
+            )
+        )
+        assert definition.rating_segment == rating_segment
+        assert definition.sector_segment is None
+        assert definition.spread_measure == "GOVT_OAS"
+        assert (
+            definition.convention_ref
+            == "ice-bofa/fixed-income-indices/government-oas"
+        )
+        assert (
+            entry.source_mapping.publisher
+            == "ICE Data Indices, LLC"
+        )
+        assert entry.source_mapping.provider_series_id == provider_id
 
 
 def test_catalog_parses_all_seven_market_families() -> None:

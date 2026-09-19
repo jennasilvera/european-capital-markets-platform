@@ -248,29 +248,101 @@ Source classification:
 - source tier: `ESTABLISHED_MARKET_DATA`;
 - source type: `MARKET_DATA`.
 
-## Deliberately Deferred Credit Mappings
+## European Credit Spread Benchmarks
 
-The Phase 1 framework also requires:
+The initial Phase 1 credit-spread coverage uses two ICE BofA euro corporate
+benchmarks:
 
-- broad European investment-grade credit spread;
-- broad European high-yield credit spread.
+- `MKS000000010` — ICE BofA Euro Corporate Index government
+  option-adjusted spread;
+- `MKS000000011` — ICE BofA Euro High Yield Index government
+  option-adjusted spread.
 
-Those mappings are intentionally not populated in this increment.
+Administrator index identifiers:
 
-The platform will not commit a placeholder ticker or distributor-specific
-series merely to satisfy nominal coverage.
+- investment grade: `ER00`;
+- high yield: `HE00`.
 
-Before adding the credit mappings, the project must separately review:
+Official ICE references:
 
-1. the benchmark family;
-2. the exact credit universe and currency;
-3. the spread measure, including OAS methodology where applicable;
-4. the benchmark administrator versus downstream distributor identifier;
-5. licensing and redistribution constraints;
-6. whether the selected identifier can support reproducible ingestion.
+- <https://www.ice.com/publicdocs/ICE_Real-Time_Indices_FactSheet.pdf>
+- <https://www.ice.com/publicdocs/data/Bond_Index_Methodologies.pdf>
 
-Until that review is complete, the absence of a `CREDIT_SPREAD` catalog entry
-is deliberate and visible.
+### Economic Selection
+
+ICE identifies `ER00` as the ICE BofA Euro Corporate Index. The index covers
+euro-denominated investment-grade corporate securities publicly issued in the
+Eurobond or euro-member domestic markets.
+
+ICE identifies `HE00` as the ICE BofA Euro High Yield Index. The index covers
+euro-denominated below-investment-grade corporate securities publicly issued in
+the Eurobond or euro-member domestic markets.
+
+The platform therefore uses:
+
+- currency: `EUR`;
+- investment-grade rating segment: `INVESTMENT_GRADE`;
+- high-yield rating segment: `BELOW_INVESTMENT_GRADE`;
+- sector segment: `null`, because these are broad corporate benchmarks rather
+  than sector-specific selections.
+
+The previously considered `HP00` European Currency High Yield Index is not used
+for this Phase 1 pair because it represents a broader European-currency
+universe. `HE00` provides the direct euro-denominated high-yield counterpart to
+the euro-denominated `ER00` investment-grade selection.
+
+### Spread Measure
+
+The selected analytical measure is `GOVT_OAS`.
+
+ICE defines government option-adjusted spread as option-adjusted spread measured
+against the government yield curve corresponding to the security's currency of
+denomination.
+
+The canonical convention reference is:
+
+`ice-bofa/fixed-income-indices/government-oas`
+
+Canonical observations therefore use `market_series.spread_bps` and basis
+points. The catalog identity distinguishes the selected index family from the
+selected spread measure rather than treating an index level and an OAS as the
+same economic series.
+
+### Administrator and Distributor Identifiers
+
+`ER00` and `HE00` are retained as the reference-level administrator index
+identifiers.
+
+A downstream data distributor may expose a separate identifier for a particular
+OAS time series. Such an identifier belongs to the later ingestion/source
+mapping used to retrieve observations. It does not replace the administrator
+index identifier in the canonical economic reference selection.
+
+This distinction prevents a distributor-specific code from becoming the
+platform's economic identity for the benchmark.
+
+### Source Classification
+
+For both credit selections:
+
+- publisher: ICE Data Indices, LLC;
+- source tier: `ESTABLISHED_MARKET_DATA`;
+- source type: `MARKET_DATA`.
+
+### Licensing Boundary
+
+ICE BofA index and analytics data is licensed market data.
+
+This repository records the benchmark family, economic definition, spread
+convention, administrator references, and administrator identifiers. It does
+not commit or redistribute ICE BofA index observations, constituent data, or
+licensed historical spread datasets.
+
+Any subsequent ingestion implementation must separately establish permitted
+access, retrieval method, storage, and redistribution rights.
+
+`active_from` and `active_to` remain `null` until the applicability period of
+the platform's selected reference mappings is separately governed.
 
 ## Ingestion Boundary
 

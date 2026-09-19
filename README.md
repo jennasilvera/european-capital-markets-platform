@@ -17,7 +17,7 @@ conclusion was produced.
 >
 > Controlled reference-series catalog structure and the first reviewed
 > source/provider mappings are implemented.
-> Remaining provider mappings, ingestion, market analytics, financing models, dashboards,
+> Controlled ingestion, market analytics, financing models, dashboards,
 > and client-facing outputs follow as separately reviewed layers.
 
 ---
@@ -756,7 +756,7 @@ This keeps database correctness separate from local environment availability.
 | Market-series writer / reader adapters | Implemented |
 | PostgreSQL lossless market round trip | Implemented |
 | Controlled reference-series catalog | Implemented |
-| Concrete provider mappings | In progress — ECB, Bundesbank, ICE Swap Rate, STOXX/VSTOXX mapped; credit benchmarks pending |
+| Concrete provider mappings | Implemented for initial Phase 1 coverage — ECB, Bundesbank, ICE Swap Rate, STOXX/VSTOXX, and ICE BofA EUR IG/HY credit |
 | Market-data ingestion | Deferred |
 | Market analytics | Planned |
 | Financing models | Planned |
@@ -800,9 +800,9 @@ Controlled Outputs
 
 ### Next Phase 1 increment
 
-The controlled market reference-series catalog is implemented. The next Phase 1
-work is to complete reviewed concrete mappings, most notably the remaining
-European credit-spread benchmarks, before ingestion.
+The controlled market reference-series catalog and initial reviewed provider
+mappings are implemented. The next Phase 1 work is controlled market-data
+ingestion, with provider-access and licensing controls kept explicit.
 
 The catalog governs selection metadata such as:
 
