@@ -160,8 +160,20 @@ The catalog must never be used as a substitute for observation provenance.
 - `EVENT_DRIVEN`;
 - `IRREGULAR`.
 
-This field describes the expected availability/update cadence of the selected
-series. It is not an ingestion schedule.
+This field describes the expected date-level availability cadence of the
+selected series for the canonical Phase 1 market layer. It is not an ingestion
+schedule and does not necessarily describe the provider's full raw
+dissemination frequency.
+
+A provider may calculate or disseminate a benchmark intraday or in real time
+while the Phase 1 catalog records `BUSINESS_DAILY` when one governed date-level
+observation is expected for each relevant business day. The catalog must not
+use this field to imply intraday precision that the canonical observation model
+does not preserve.
+
+If intraday canonical observations are introduced later, their temporal and
+reference-data contracts must be extended explicitly rather than inferred from
+this field.
 
 ## Activity Dates
 

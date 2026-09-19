@@ -144,13 +144,115 @@ def _catalog_payload() -> dict[str, object]:
     }
 
 
-def test_committed_reference_catalog_is_valid_and_empty() -> None:
+def test_committed_reference_catalog_contains_reviewed_mappings() -> None:
     catalog = load_market_series_catalog(
         Path("data/reference/market_series_catalog.json")
     )
 
     assert catalog.catalog_version == CATALOG_VERSION
-    assert catalog.entries == ()
+    assert len(catalog.entries) == 9
+
+    assert tuple(
+        entry.market_series.market_series_id
+        for entry in catalog.entries
+    ) == (
+        "MKS000000001",
+        "MKS000000002",
+        "MKS000000003",
+        "MKS000000004",
+        "MKS000000005",
+        "MKS000000006",
+        "MKS000000007",
+        "MKS000000008",
+        "MKS000000009",
+    )
+
+    assert tuple(
+        entry.market_series.series_type
+        for entry in catalog.entries
+    ) == (
+        MarketSeriesType.POLICY_RATE,
+        MarketSeriesType.GOVERNMENT_YIELD,
+        MarketSeriesType.GOVERNMENT_YIELD,
+        MarketSeriesType.GOVERNMENT_YIELD,
+        MarketSeriesType.SWAP_RATE,
+        MarketSeriesType.SWAP_RATE,
+        MarketSeriesType.SWAP_RATE,
+        MarketSeriesType.EQUITY_INDEX,
+        MarketSeriesType.VOLATILITY_INDEX,
+    )
+
+
+def test_committed_reference_catalog_uses_reviewed_provider_ids() -> None:
+    catalog = load_market_series_catalog(
+        Path("data/reference/market_series_catalog.json")
+    )
+
+    entries = {
+        entry.market_series.market_series_id: entry
+        for entry in catalog.entries
+    }
+
+    provider_ids = {
+        series_id: entry.source_mapping.provider_series_id
+        for series_id, entry in entries.items()
+    }
+
+    assert provider_ids == {
+        "MKS000000001": "FM.D.U2.EUR.4F.KR.DFR.LEV",
+        "MKS000000002": "BBSSY.D.REN.EUR.A610.000000WT0202.A",
+        "MKS000000003": "BBSSY.D.REN.EUR.A620.000000WT0505.A",
+        "MKS000000004": "BBSSY.D.REN.EUR.A630.000000WT1010.A",
+        "MKS000000005": "GB00BL53X451",
+        "MKS000000006": "GB00BL53ZG16",
+        "MKS000000007": "GB00BL54030",
+        "MKS000000008": "SXXP",
+        "MKS000000009": "V2TX",
+    }
+
+    assert (
+        entries["MKS000000001"].source_mapping.source_tier
+        is SourceTier.OFFICIAL_INSTITUTION
+    )
+    assert (
+        entries["MKS000000001"].source_mapping.source_type
+        is SourceType.CENTRAL_BANK_PUBLICATION
+    )
+
+    for series_id in (
+        "MKS000000002",
+        "MKS000000003",
+        "MKS000000004",
+    ):
+        assert (
+            entries[series_id].source_mapping.source_tier
+            is SourceTier.OFFICIAL_INSTITUTION
+        )
+        assert (
+            entries[series_id].source_mapping.source_type
+            is SourceType.OFFICIAL_STATISTICS
+        )
+
+    for series_id in (
+        "MKS000000005",
+        "MKS000000006",
+        "MKS000000007",
+        "MKS000000008",
+        "MKS000000009",
+    ):
+        assert (
+            entries[series_id].source_mapping.source_tier
+            is SourceTier.ESTABLISHED_MARKET_DATA
+        )
+        assert (
+            entries[series_id].source_mapping.source_type
+            is SourceType.MARKET_DATA
+        )
+
+    assert MarketSeriesType.CREDIT_SPREAD not in {
+        entry.market_series.series_type
+        for entry in catalog.entries
+    }
 
 
 def test_catalog_parses_all_seven_market_families() -> None:
