@@ -5,6 +5,7 @@ description = "European Capital Markets Issuance & Execution Intelligence Platfo
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "httpx>=0.28.1,<0.29",
     "psycopg[binary]>=3.3.5,<3.4",
     "sqlalchemy>=2.0.54,<2.1",
 ]
