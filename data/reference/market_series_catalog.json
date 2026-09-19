@@ -1,4 +1,204 @@
 {
   "catalog_version": 1,
-  "series": []
+  "series": [
+    {
+      "market_series_id": "MKS000000001",
+      "series_type": "POLICY_RATE",
+      "display_label": "ECB Deposit Facility Rate",
+      "identity": {
+        "authority": "European Central Bank",
+        "jurisdiction": "Euro Area",
+        "currency": "EUR",
+        "rate_name": "Deposit Facility Rate",
+        "convention_ref": "ecb/key-rates/deposit-facility-date-of-changes-level"
+      },
+      "source_mapping": {
+        "publisher": "European Central Bank",
+        "source_tier": "OFFICIAL_INSTITUTION",
+        "source_type": "CENTRAL_BANK_PUBLICATION",
+        "provider_series_id": "FM.D.U2.EUR.4F.KR.DFR.LEV"
+      },
+      "expected_publication_frequency": "DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "ECB Data Portal daily level series selected as the operative euro-area policy-rate reference."
+    },
+    {
+      "market_series_id": "MKS000000002",
+      "series_type": "GOVERNMENT_YIELD",
+      "display_label": "Germany 2Y current Federal-security yield",
+      "identity": {
+        "sovereign": "Federal Republic of Germany",
+        "jurisdiction": "Germany",
+        "currency": "EUR",
+        "tenor_months": 24,
+        "benchmark_ref": "Current two-year Federal Treasury notes",
+        "convention_ref": "bundesbank/current-federal-securities/daily-yield"
+      },
+      "source_mapping": {
+        "publisher": "Deutsche Bundesbank",
+        "source_tier": "OFFICIAL_INSTITUTION",
+        "source_type": "OFFICIAL_STATISTICS",
+        "provider_series_id": "BBSSY.D.REN.EUR.A610.000000WT0202.A"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "Bundesbank daily yield of the current two-year Federal Treasury notes."
+    },
+    {
+      "market_series_id": "MKS000000003",
+      "series_type": "GOVERNMENT_YIELD",
+      "display_label": "Germany 5Y current Federal-security yield",
+      "identity": {
+        "sovereign": "Federal Republic of Germany",
+        "jurisdiction": "Germany",
+        "currency": "EUR",
+        "tenor_months": 60,
+        "benchmark_ref": "Current five-year Federal notes",
+        "convention_ref": "bundesbank/current-federal-securities/daily-yield"
+      },
+      "source_mapping": {
+        "publisher": "Deutsche Bundesbank",
+        "source_tier": "OFFICIAL_INSTITUTION",
+        "source_type": "OFFICIAL_STATISTICS",
+        "provider_series_id": "BBSSY.D.REN.EUR.A620.000000WT0505.A"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "Bundesbank daily yield of the current five-year Federal notes."
+    },
+    {
+      "market_series_id": "MKS000000004",
+      "series_type": "GOVERNMENT_YIELD",
+      "display_label": "Germany 10Y current Federal-security yield",
+      "identity": {
+        "sovereign": "Federal Republic of Germany",
+        "jurisdiction": "Germany",
+        "currency": "EUR",
+        "tenor_months": 120,
+        "benchmark_ref": "Current 10-year Federal bond",
+        "convention_ref": "bundesbank/current-federal-securities/daily-yield"
+      },
+      "source_mapping": {
+        "publisher": "Deutsche Bundesbank",
+        "source_tier": "OFFICIAL_INSTITUTION",
+        "source_type": "OFFICIAL_STATISTICS",
+        "provider_series_id": "BBSSY.D.REN.EUR.A630.000000WT1010.A"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "Bundesbank daily yield of the current 10-year Federal bond."
+    },
+    {
+      "market_series_id": "MKS000000005",
+      "series_type": "SWAP_RATE",
+      "display_label": "ICE Swap Rate EUR EURIBOR 1100 2Y",
+      "identity": {
+        "currency": "EUR",
+        "tenor_months": 24,
+        "floating_rate_ref": "EURIBOR-6M",
+        "fixed_leg_convention_ref": "ANNUAL-30/360",
+        "convention_ref": "ice-swap-rate/eur-euribor-1100"
+      },
+      "source_mapping": {
+        "publisher": "ICE Benchmark Administration Limited",
+        "source_tier": "ESTABLISHED_MARKET_DATA",
+        "source_type": "MARKET_DATA",
+        "provider_series_id": "GB00BL53X451"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "ICE Swap Rate EUR EURIBOR 1100 two-year benchmark setting; provider identifier is the published benchmark ISIN."
+    },
+    {
+      "market_series_id": "MKS000000006",
+      "series_type": "SWAP_RATE",
+      "display_label": "ICE Swap Rate EUR EURIBOR 1100 5Y",
+      "identity": {
+        "currency": "EUR",
+        "tenor_months": 60,
+        "floating_rate_ref": "EURIBOR-6M",
+        "fixed_leg_convention_ref": "ANNUAL-30/360",
+        "convention_ref": "ice-swap-rate/eur-euribor-1100"
+      },
+      "source_mapping": {
+        "publisher": "ICE Benchmark Administration Limited",
+        "source_tier": "ESTABLISHED_MARKET_DATA",
+        "source_type": "MARKET_DATA",
+        "provider_series_id": "GB00BL53ZG16"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "ICE Swap Rate EUR EURIBOR 1100 five-year benchmark setting; provider identifier is the published benchmark ISIN."
+    },
+    {
+      "market_series_id": "MKS000000007",
+      "series_type": "SWAP_RATE",
+      "display_label": "ICE Swap Rate EUR EURIBOR 1100 10Y",
+      "identity": {
+        "currency": "EUR",
+        "tenor_months": 120,
+        "floating_rate_ref": "EURIBOR-6M",
+        "fixed_leg_convention_ref": "ANNUAL-30/360",
+        "convention_ref": "ice-swap-rate/eur-euribor-1100"
+      },
+      "source_mapping": {
+        "publisher": "ICE Benchmark Administration Limited",
+        "source_tier": "ESTABLISHED_MARKET_DATA",
+        "source_type": "MARKET_DATA",
+        "provider_series_id": "GB00BL54030"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "ICE Swap Rate EUR EURIBOR 1100 ten-year benchmark setting; provider identifier is the published benchmark ISIN."
+    },
+    {
+      "market_series_id": "MKS000000008",
+      "series_type": "EQUITY_INDEX",
+      "display_label": "STOXX Europe 600 EUR price index",
+      "identity": {
+        "index_name": "STOXX Europe 600",
+        "universe": "Developed Europe",
+        "index_variant_ref": "PRICE_EUR",
+        "methodology_ref": "stoxx/stoxx-europe-600"
+      },
+      "source_mapping": {
+        "publisher": "STOXX Ltd.",
+        "source_tier": "ESTABLISHED_MARKET_DATA",
+        "source_type": "MARKET_DATA",
+        "provider_series_id": "SXXP"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "Official STOXX Europe 600 EUR price-return version; symbol SXXP; ISIN EU0009658202."
+    },
+    {
+      "market_series_id": "MKS000000009",
+      "series_type": "VOLATILITY_INDEX",
+      "display_label": "VSTOXX 30-day index",
+      "identity": {
+        "index_name": "EURO STOXX 50 Volatility (VSTOXX)",
+        "underlying_ref": "EURO STOXX 50",
+        "horizon_days": 30,
+        "methodology_ref": "stoxx/vstoxx"
+      },
+      "source_mapping": {
+        "publisher": "STOXX Ltd.",
+        "source_tier": "ESTABLISHED_MARKET_DATA",
+        "source_type": "MARKET_DATA",
+        "provider_series_id": "V2TX"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "Main 30-day VSTOXX index based on EURO STOXX 50 options; symbol V2TX; ISIN DE000A0C3QF1."
+    }
+  ]
 }

@@ -15,8 +15,9 @@ conclusion was produced.
 > persistence layer, European market-series model, database integrity controls,
 > and lossless market-series persistence are implemented.
 >
-> Controlled reference-series selection is the next Phase 1 increment.
-> Provider mappings, ingestion, market analytics, financing models, dashboards,
+> Controlled reference-series catalog structure and the first reviewed
+> source/provider mappings are implemented.
+> Remaining provider mappings, ingestion, market analytics, financing models, dashboards,
 > and client-facing outputs follow as separately reviewed layers.
 
 ---
@@ -754,8 +755,8 @@ This keeps database correctness separate from local environment availability.
 | Market-series PostgreSQL schema | Implemented |
 | Market-series writer / reader adapters | Implemented |
 | PostgreSQL lossless market round trip | Implemented |
-| Controlled reference-series catalog | Next reviewed increment |
-| Concrete provider mappings | Deferred until catalog review |
+| Controlled reference-series catalog | Implemented |
+| Concrete provider mappings | In progress — ECB, Bundesbank, ICE Swap Rate, STOXX/VSTOXX mapped; credit benchmarks pending |
 | Market-data ingestion | Deferred |
 | Market analytics | Planned |
 | Financing models | Planned |
@@ -799,9 +800,11 @@ Controlled Outputs
 
 ### Next Phase 1 increment
 
-The next planned increment is the controlled market reference-series catalog.
+The controlled market reference-series catalog is implemented. The next Phase 1
+work is to complete reviewed concrete mappings, most notably the remaining
+European credit-spread benchmarks, before ingestion.
 
-The catalog will govern selection metadata such as:
+The catalog governs selection metadata such as:
 
 - canonical market-series ID;
 - series type;
@@ -814,8 +817,8 @@ The catalog will govern selection metadata such as:
 - methodology or convention references;
 - notes.
 
-The catalog structure is reviewed before concrete provider mappings or live
-ingestion are introduced.
+The catalog structure is implemented. Concrete provider mappings are added
+through source-specific reviewed increments before live ingestion.
 
 ### Initial European market coverage
 
