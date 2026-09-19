@@ -31,8 +31,14 @@ from european_capital_markets.domain.lineage import (
     SourceRecord,
 )
 from european_capital_markets.domain.market_data import (
+    CreditSpreadDefinitionRecord,
+    EquityIndexDefinitionRecord,
     FXReferenceRateDefinitionRecord,
+    GovernmentYieldDefinitionRecord,
     MarketSeriesRecord,
+    PolicyRateDefinitionRecord,
+    SwapRateDefinitionRecord,
+    VolatilityIndexDefinitionRecord,
 )
 from european_capital_markets.domain.participations import (
     ParticipationRecord,
@@ -164,6 +170,12 @@ def _load_canonical_dataset(
         ),
         market_series=_load_market_series(connection),
         fx_reference_rates=_load_fx_reference_rates(connection),
+        policy_rates=_load_policy_rates(connection),
+        government_yields=_load_government_yields(connection),
+        swap_rates=_load_swap_rates(connection),
+        credit_spreads=_load_credit_spreads(connection),
+        equity_indices=_load_equity_indices(connection),
+        volatility_indices=_load_volatility_indices(connection),
         sources=_load_sources(connection),
         evidence=_load_evidence(connection),
         observations=_load_observations(
@@ -491,6 +503,202 @@ def _load_fx_reference_rates(
         for row in rows
     )
 
+
+
+def _load_policy_rates(
+    connection: Connection,
+) -> tuple[PolicyRateDefinitionRecord, ...]:
+    rows = connection.execute(
+        sa.text(
+            """
+            SELECT
+                market_series_id,
+                authority,
+                jurisdiction,
+                currency,
+                rate_name,
+                convention_ref
+            FROM policy_rate_definitions
+            ORDER BY market_series_id
+            """
+        )
+    ).mappings()
+
+    return tuple(
+        PolicyRateDefinitionRecord(
+            market_series_id=row["market_series_id"],
+            authority=row["authority"],
+            jurisdiction=row["jurisdiction"],
+            currency=row["currency"],
+            rate_name=row["rate_name"],
+            convention_ref=row["convention_ref"],
+        )
+        for row in rows
+    )
+
+
+def _load_government_yields(
+    connection: Connection,
+) -> tuple[GovernmentYieldDefinitionRecord, ...]:
+    rows = connection.execute(
+        sa.text(
+            """
+            SELECT
+                market_series_id,
+                sovereign,
+                jurisdiction,
+                currency,
+                tenor_months,
+                benchmark_ref,
+                convention_ref
+            FROM government_yield_definitions
+            ORDER BY market_series_id
+            """
+        )
+    ).mappings()
+
+    return tuple(
+        GovernmentYieldDefinitionRecord(
+            market_series_id=row["market_series_id"],
+            sovereign=row["sovereign"],
+            jurisdiction=row["jurisdiction"],
+            currency=row["currency"],
+            tenor_months=row["tenor_months"],
+            benchmark_ref=row["benchmark_ref"],
+            convention_ref=row["convention_ref"],
+        )
+        for row in rows
+    )
+
+
+def _load_swap_rates(
+    connection: Connection,
+) -> tuple[SwapRateDefinitionRecord, ...]:
+    rows = connection.execute(
+        sa.text(
+            """
+            SELECT
+                market_series_id,
+                currency,
+                tenor_months,
+                floating_rate_ref,
+                fixed_leg_convention_ref,
+                convention_ref
+            FROM swap_rate_definitions
+            ORDER BY market_series_id
+            """
+        )
+    ).mappings()
+
+    return tuple(
+        SwapRateDefinitionRecord(
+            market_series_id=row["market_series_id"],
+            currency=row["currency"],
+            tenor_months=row["tenor_months"],
+            floating_rate_ref=row["floating_rate_ref"],
+            fixed_leg_convention_ref=row[
+                "fixed_leg_convention_ref"
+            ],
+            convention_ref=row["convention_ref"],
+        )
+        for row in rows
+    )
+
+
+def _load_credit_spreads(
+    connection: Connection,
+) -> tuple[CreditSpreadDefinitionRecord, ...]:
+    rows = connection.execute(
+        sa.text(
+            """
+            SELECT
+                market_series_id,
+                benchmark_family,
+                currency,
+                credit_universe,
+                rating_segment,
+                sector_segment,
+                spread_measure,
+                convention_ref
+            FROM credit_spread_definitions
+            ORDER BY market_series_id
+            """
+        )
+    ).mappings()
+
+    return tuple(
+        CreditSpreadDefinitionRecord(
+            market_series_id=row["market_series_id"],
+            benchmark_family=row["benchmark_family"],
+            currency=row["currency"],
+            credit_universe=row["credit_universe"],
+            spread_measure=row["spread_measure"],
+            convention_ref=row["convention_ref"],
+            rating_segment=row["rating_segment"],
+            sector_segment=row["sector_segment"],
+        )
+        for row in rows
+    )
+
+
+def _load_equity_indices(
+    connection: Connection,
+) -> tuple[EquityIndexDefinitionRecord, ...]:
+    rows = connection.execute(
+        sa.text(
+            """
+            SELECT
+                market_series_id,
+                index_name,
+                universe,
+                index_variant_ref,
+                methodology_ref
+            FROM equity_index_definitions
+            ORDER BY market_series_id
+            """
+        )
+    ).mappings()
+
+    return tuple(
+        EquityIndexDefinitionRecord(
+            market_series_id=row["market_series_id"],
+            index_name=row["index_name"],
+            universe=row["universe"],
+            index_variant_ref=row["index_variant_ref"],
+            methodology_ref=row["methodology_ref"],
+        )
+        for row in rows
+    )
+
+
+def _load_volatility_indices(
+    connection: Connection,
+) -> tuple[VolatilityIndexDefinitionRecord, ...]:
+    rows = connection.execute(
+        sa.text(
+            """
+            SELECT
+                market_series_id,
+                index_name,
+                underlying_ref,
+                horizon_days,
+                methodology_ref
+            FROM volatility_index_definitions
+            ORDER BY market_series_id
+            """
+        )
+    ).mappings()
+
+    return tuple(
+        VolatilityIndexDefinitionRecord(
+            market_series_id=row["market_series_id"],
+            index_name=row["index_name"],
+            underlying_ref=row["underlying_ref"],
+            methodology_ref=row["methodology_ref"],
+            horizon_days=row["horizon_days"],
+        )
+        for row in rows
+    )
 
 def _load_sources(
     connection: Connection,

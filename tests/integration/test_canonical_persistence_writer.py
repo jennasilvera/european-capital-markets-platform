@@ -30,8 +30,14 @@ from european_capital_markets.domain.lineage import (
     SourceRecord,
 )
 from european_capital_markets.domain.market_data import (
+    CreditSpreadDefinitionRecord,
+    EquityIndexDefinitionRecord,
     FXReferenceRateDefinitionRecord,
+    GovernmentYieldDefinitionRecord,
     MarketSeriesRecord,
+    PolicyRateDefinitionRecord,
+    SwapRateDefinitionRecord,
+    VolatilityIndexDefinitionRecord,
 )
 from european_capital_markets.domain.participations import (
     ParticipationRecord,
@@ -78,6 +84,12 @@ CANONICAL_TABLES = (
     "evidence",
     "sources",
     "fx_reference_rate_definitions",
+    "policy_rate_definitions",
+    "government_yield_definitions",
+    "swap_rate_definitions",
+    "credit_spread_definitions",
+    "equity_index_definitions",
+    "volatility_index_definitions",
     "market_series",
     "participations",
     "instruments",
@@ -687,24 +699,61 @@ def test_database_failure_rolls_back_complete_dataset(
     assert _count(engine, "observations") == 0
 
 
-def test_phase1_market_definition_is_rejected_before_storage(
+
+def test_phase1_market_definitions_round_trip_losslessly(
     engine: Engine,
 ) -> None:
-    from european_capital_markets.domain.market_data import (
-        PolicyRateDefinitionRecord,
-    )
+    """All seven market definition families persist and reconstruct exactly."""
 
     dataset = CanonicalDataset(
         market_series=(
             MarketSeriesRecord(
-                market_series_id="MKS000000900",
+                market_series_id="MKS000000901",
+                series_type=MarketSeriesType.FX_REFERENCE_RATE,
+                series_label="EUR/GBP reference rate",
+            ),
+            MarketSeriesRecord(
+                market_series_id="MKS000000902",
                 series_type=MarketSeriesType.POLICY_RATE,
                 series_label="ECB Deposit Facility Rate",
+            ),
+            MarketSeriesRecord(
+                market_series_id="MKS000000903",
+                series_type=MarketSeriesType.GOVERNMENT_YIELD,
+                series_label="Germany 10Y benchmark yield",
+            ),
+            MarketSeriesRecord(
+                market_series_id="MKS000000904",
+                series_type=MarketSeriesType.SWAP_RATE,
+                series_label="EUR 5Y swap rate",
+            ),
+            MarketSeriesRecord(
+                market_series_id="MKS000000905",
+                series_type=MarketSeriesType.CREDIT_SPREAD,
+                series_label="European IG corporate OAS",
+            ),
+            MarketSeriesRecord(
+                market_series_id="MKS000000906",
+                series_type=MarketSeriesType.EQUITY_INDEX,
+                series_label="STOXX Europe 600 price index",
+            ),
+            MarketSeriesRecord(
+                market_series_id="MKS000000907",
+                series_type=MarketSeriesType.VOLATILITY_INDEX,
+                series_label="European equity volatility",
+            ),
+        ),
+        fx_reference_rates=(
+            FXReferenceRateDefinitionRecord(
+                market_series_id="MKS000000901",
+                base_currency="EUR",
+                quote_currency="GBP",
+                convention_ref="market-data/fx/reference-rate-v1",
             ),
         ),
         policy_rates=(
             PolicyRateDefinitionRecord(
-                market_series_id="MKS000000900",
+                market_series_id="MKS000000902",
                 authority="European Central Bank",
                 jurisdiction="Euro Area",
                 currency="EUR",
@@ -712,17 +761,107 @@ def test_phase1_market_definition_is_rejected_before_storage(
                 convention_ref="market-data/ecb/policy-rate-v1",
             ),
         ),
+        government_yields=(
+            GovernmentYieldDefinitionRecord(
+                market_series_id="MKS000000903",
+                sovereign="Federal Republic of Germany",
+                jurisdiction="Germany",
+                currency="EUR",
+                tenor_months=120,
+                benchmark_ref="German sovereign 10Y benchmark",
+                convention_ref="market-data/government-yield-v1",
+            ),
+        ),
+        swap_rates=(
+            SwapRateDefinitionRecord(
+                market_series_id="MKS000000904",
+                currency="EUR",
+                tenor_months=60,
+                floating_rate_ref="EURIBOR-6M",
+                fixed_leg_convention_ref="EUR-IRS-fixed-leg-v1",
+                convention_ref="market-data/swap-rate-v1",
+            ),
+        ),
+        credit_spreads=(
+            CreditSpreadDefinitionRecord(
+                market_series_id="MKS000000905",
+                benchmark_family="European Corporate Credit",
+                currency="EUR",
+                credit_universe="Investment Grade",
+                spread_measure="OAS",
+                convention_ref="market-data/credit-spread-v1",
+                rating_segment="A",
+                sector_segment=None,
+            ),
+        ),
+        equity_indices=(
+            EquityIndexDefinitionRecord(
+                market_series_id="MKS000000906",
+                index_name="STOXX Europe 600",
+                universe="Europe",
+                index_variant_ref="PRICE",
+                methodology_ref="market-data/equity-index-v1",
+            ),
+        ),
+        volatility_indices=(
+            VolatilityIndexDefinitionRecord(
+                market_series_id="MKS000000907",
+                index_name="European Equity Volatility",
+                underlying_ref="STOXX Europe 600",
+                methodology_ref="market-data/volatility-index-v1",
+                horizon_days=None,
+            ),
+        ),
     )
 
-    with pytest.raises(
-        ValueError,
-        match=(
-            "Canonical PostgreSQL persistence does not yet support "
-            "market-series definition families: POLICY_RATE"
-        ),
-    ):
-        persist_canonical_dataset(engine, dataset)
+    persist_canonical_dataset(engine, dataset)
 
-    assert _count(engine, "market_series") == 0
-    assert _count(engine, "observation_subjects") == 0
-    assert _count(engine, "observations") == 0
+    assert {
+        "market_series": _count(engine, "market_series"),
+        "fx_reference_rate_definitions": _count(
+            engine,
+            "fx_reference_rate_definitions",
+        ),
+        "policy_rate_definitions": _count(
+            engine,
+            "policy_rate_definitions",
+        ),
+        "government_yield_definitions": _count(
+            engine,
+            "government_yield_definitions",
+        ),
+        "swap_rate_definitions": _count(
+            engine,
+            "swap_rate_definitions",
+        ),
+        "credit_spread_definitions": _count(
+            engine,
+            "credit_spread_definitions",
+        ),
+        "equity_index_definitions": _count(
+            engine,
+            "equity_index_definitions",
+        ),
+        "volatility_index_definitions": _count(
+            engine,
+            "volatility_index_definitions",
+        ),
+        "observation_subjects": _count(
+            engine,
+            "observation_subjects",
+        ),
+    } == {
+        "market_series": 7,
+        "fx_reference_rate_definitions": 1,
+        "policy_rate_definitions": 1,
+        "government_yield_definitions": 1,
+        "swap_rate_definitions": 1,
+        "credit_spread_definitions": 1,
+        "equity_index_definitions": 1,
+        "volatility_index_definitions": 1,
+        "observation_subjects": 7,
+    }
+
+    reconstructed = load_canonical_dataset(engine)
+
+    assert reconstructed == dataset

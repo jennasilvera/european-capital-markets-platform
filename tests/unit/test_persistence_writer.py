@@ -80,7 +80,10 @@ def test_text_uses_text_slot() -> None:
     assert encoded["text_value"] == "canonical value"
 
 
-def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
+
+def test_phase1_market_definitions_enter_persistence_transaction(
+    monkeypatch,
+) -> None:
     from european_capital_markets.domain.dataset import CanonicalDataset
     from european_capital_markets.domain.market_data import (
         CreditSpreadDefinitionRecord,
@@ -99,7 +102,6 @@ def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
     cases = (
         (
             "policy_rates",
-            "POLICY_RATE",
             MarketSeriesType.POLICY_RATE,
             PolicyRateDefinitionRecord(
                 market_series_id="MKS000000100",
@@ -112,7 +114,6 @@ def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
         ),
         (
             "government_yields",
-            "GOVERNMENT_YIELD",
             MarketSeriesType.GOVERNMENT_YIELD,
             GovernmentYieldDefinitionRecord(
                 market_series_id="MKS000000100",
@@ -126,7 +127,6 @@ def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
         ),
         (
             "swap_rates",
-            "SWAP_RATE",
             MarketSeriesType.SWAP_RATE,
             SwapRateDefinitionRecord(
                 market_series_id="MKS000000100",
@@ -139,7 +139,6 @@ def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
         ),
         (
             "credit_spreads",
-            "CREDIT_SPREAD",
             MarketSeriesType.CREDIT_SPREAD,
             CreditSpreadDefinitionRecord(
                 market_series_id="MKS000000100",
@@ -152,7 +151,6 @@ def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
         ),
         (
             "equity_indices",
-            "EQUITY_INDEX",
             MarketSeriesType.EQUITY_INDEX,
             EquityIndexDefinitionRecord(
                 market_series_id="MKS000000100",
@@ -164,7 +162,6 @@ def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
         ),
         (
             "volatility_indices",
-            "VOLATILITY_INDEX",
             MarketSeriesType.VOLATILITY_INDEX,
             VolatilityIndexDefinitionRecord(
                 market_series_id="MKS000000100",
@@ -176,18 +173,53 @@ def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
         ),
     )
 
-    class BeginProbe:
+    persisted: list[tuple[object, CanonicalDataset]] = []
+
+    class ConnectionProbe:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def execute(self, statement: object) -> None:
+            self.statements.append(str(statement))
+
+    class TransactionProbe:
+        def __init__(self, connection: ConnectionProbe) -> None:
+            self.connection = connection
+
+        def __enter__(self) -> ConnectionProbe:
+            return self.connection
+
+        def __exit__(
+            self,
+            exc_type: object,
+            exc: object,
+            traceback: object,
+        ) -> bool:
+            return False
+
+    class EngineProbe:
         def __init__(self) -> None:
             self.begin_called = False
+            self.connection = ConnectionProbe()
 
-        def begin(self) -> None:
+        def begin(self) -> TransactionProbe:
             self.begin_called = True
-            raise AssertionError(
-                "Persistence transaction must not begin."
-            )
+            return TransactionProbe(self.connection)
 
-    for attribute_name, family_name, series_type, definition in cases:
-        engine = BeginProbe()
+    def fake_persist(
+        connection: object,
+        dataset: CanonicalDataset,
+    ) -> None:
+        persisted.append((connection, dataset))
+
+    monkeypatch.setattr(
+        "european_capital_markets.persistence.writer."
+        "_persist_validated_dataset",
+        fake_persist,
+    )
+
+    for attribute_name, series_type, definition in cases:
+        engine = EngineProbe()
 
         dataset = CanonicalDataset(
             market_series=(
@@ -201,21 +233,13 @@ def test_phase1_market_definitions_fail_before_transaction_begins() -> None:
             },
         )
 
-        try:
-            persist_canonical_dataset(
-                engine,  # type: ignore[arg-type]
-                dataset,
-            )
-        except ValueError as exc:
-            message = str(exc)
-            assert (
-                "Canonical PostgreSQL persistence does not yet support"
-                in message
-            )
-            assert family_name in message
-        else:
-            raise AssertionError(
-                f"{family_name} unexpectedly reached persistence."
-            )
+        persist_canonical_dataset(
+            engine,  # type: ignore[arg-type]
+            dataset,
+        )
 
-        assert engine.begin_called is False
+        assert engine.begin_called is True
+        assert persisted[-1] == (engine.connection, dataset)
+        assert engine.connection.statements == [
+            "SET CONSTRAINTS ALL IMMEDIATE",
+        ]

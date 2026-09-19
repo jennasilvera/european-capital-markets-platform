@@ -400,47 +400,13 @@ must be preserved.
 
 The reverse currency pair remains a different orientation.
 
-## Phase 1 Market-Series Persistence Boundary
+## Phase 1 Market-Series Persistence Support
 
-Schema revision `0002_market_series_defs` establishes physical
-relational storage for the six additional frozen Phase 1 market-series
-definition families:
+Schema revision `0002_market_series_defs` and the canonical persistence
+adapters provide lossless storage and reconstruction for all seven frozen
+market-series definition families:
 
-- `policy_rate_definitions`;
-- `government_yield_definitions`;
-- `swap_rate_definitions`;
-- `credit_spread_definitions`;
-- `equity_index_definitions`;
-- `volatility_index_definitions`.
-
-Together with `fx_reference_rate_definitions`, these are one-to-one
-type-specific extensions of `market_series`.
-
-The database must enforce:
-
-- all seven permitted `market_series.series_type` values;
-- exactly one type-specific definition for every market series;
-- compatibility between the parent series type and the selected definition
-  table;
-- restrictive parent/definition relationships;
-- positive government-yield and swap tenors;
-- positive optional volatility horizon when populated;
-- uppercase three-letter currency codes where currency is an identity
-  dimension;
-- nonblank required textual identity dimensions;
-- the exact semantic identity tuples frozen by the domain model.
-
-For semantic identities containing nullable dimensions, database uniqueness must
-treat `NULL` as equal to `NULL`, matching Python `None` tuple equality. Ordinary
-PostgreSQL `UNIQUE` semantics are therefore insufficient for the nullable
-credit-spread segments and volatility horizon.
-
-Schema availability does not by itself authorize adapter writes.
-
-Until matching writer support, reader support, and real-PostgreSQL round-trip
-tests are implemented, `persist_canonical_dataset()` must continue to fail
-closed for:
-
+- `FX_REFERENCE_RATE`;
 - `POLICY_RATE`;
 - `GOVERNMENT_YIELD`;
 - `SWAP_RATE`;
@@ -448,13 +414,35 @@ closed for:
 - `EQUITY_INDEX`;
 - `VOLATILITY_INDEX`.
 
-The adapter must never silently omit a valid domain record merely because its
-write/read implementation is incomplete.
+The writer persists the generic `market_series` record and its exactly one
+type-specific definition within the same atomic canonical transaction.
 
-The fail-closed boundary may be removed only when schema, writer, reader,
-constraints, and round-trip tests jointly provide lossless support.
+The reader reconstructs each definition family from its canonical relational
+table inside the existing repeatable-read, read-only snapshot transaction.
 
-A downgrade from schema `0002` must refuse to proceed while any non-FX market
+The database continues to enforce:
+
+- all seven permitted `market_series.series_type` values;
+- exactly one type-specific definition for every market series;
+- compatibility between the parent series type and definition table;
+- restrictive parent/definition relationships;
+- the frozen physical dimension checks;
+- the exact semantic uniqueness rules, including `NULLS NOT DISTINCT` where
+  Python `None` participates in semantic identity.
+
+`persist_canonical_dataset()` must not silently omit any of these supported
+definition records. `load_canonical_dataset()` must reconstruct them without
+loss, including nullable optional identity dimensions.
+
+The earlier fail-closed boundary for the six Phase 1 families is closed only
+because schema support, writer support, reader support, database constraints,
+and real-PostgreSQL round-trip coverage now jointly exist.
+
+Any future market-series definition family must remain fail-closed until the
+same schema, writer, reader, constraint, and round-trip requirements are
+satisfied.
+
+A downgrade from schema `0002` must continue to refuse while any non-FX market
 series remains persisted. Downgrade must never silently destroy governed
 Phase 1 market-series records.
 
