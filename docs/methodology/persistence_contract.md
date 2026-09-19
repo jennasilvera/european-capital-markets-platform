@@ -400,6 +400,44 @@ must be preserved.
 
 The reverse currency pair remains a different orientation.
 
+## Phase 1 Market-Series Persistence Boundary
+
+The canonical domain may define additional type-specific market-series
+definition records before the relational schema has storage for them.
+
+Until a migration explicitly adds durable storage, writer support, reader
+support, constraints, and round-trip tests for those definition families, the
+persistence adapter must fail closed.
+
+The current pre-migration persistence boundary supports:
+
+- `FX_REFERENCE_RATE` through `fx_reference_rate_definitions`.
+
+It does not yet persist:
+
+- `POLICY_RATE`;
+- `GOVERNMENT_YIELD`;
+- `SWAP_RATE`;
+- `CREDIT_SPREAD`;
+- `EQUITY_INDEX`;
+- `VOLATILITY_INDEX`.
+
+A `CanonicalDataset` may carry those newer frozen domain records so canonical
+validation can operate over the complete in-memory model. However,
+`persist_canonical_dataset()` must reject any dataset containing one or more of
+those unsupported definition families after domain validation and before
+opening the database transaction.
+
+The adapter must never silently omit a valid domain record merely because the
+current physical schema lacks a table for it.
+
+The reader may continue reconstructing the physically supported persistence
+contract, with unsupported definition tuples empty, because the fail-closed
+writer prevents such records from entering this schema version.
+
+This boundary is temporary and must be removed only when a reviewed migration
+and matching writer/reader implementation provide lossless round-trip support.
+
 ## Sources
 
 `sources` persists `SourceRecord`.

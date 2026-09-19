@@ -685,3 +685,44 @@ def test_database_failure_rolls_back_complete_dataset(
     assert _count(engine, "market_series") == 0
     assert _count(engine, "observation_subjects") == 0
     assert _count(engine, "observations") == 0
+
+
+def test_phase1_market_definition_is_rejected_before_storage(
+    engine: Engine,
+) -> None:
+    from european_capital_markets.domain.market_data import (
+        PolicyRateDefinitionRecord,
+    )
+
+    dataset = CanonicalDataset(
+        market_series=(
+            MarketSeriesRecord(
+                market_series_id="MKS000000900",
+                series_type=MarketSeriesType.POLICY_RATE,
+                series_label="ECB Deposit Facility Rate",
+            ),
+        ),
+        policy_rates=(
+            PolicyRateDefinitionRecord(
+                market_series_id="MKS000000900",
+                authority="European Central Bank",
+                jurisdiction="Euro Area",
+                currency="EUR",
+                rate_name="Deposit Facility Rate",
+                convention_ref="market-data/ecb/policy-rate-v1",
+            ),
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Canonical PostgreSQL persistence does not yet support "
+            "market-series definition families: POLICY_RATE"
+        ),
+    ):
+        persist_canonical_dataset(engine, dataset)
+
+    assert _count(engine, "market_series") == 0
+    assert _count(engine, "observation_subjects") == 0
+    assert _count(engine, "observations") == 0
