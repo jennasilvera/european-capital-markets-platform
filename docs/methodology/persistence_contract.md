@@ -402,18 +402,44 @@ The reverse currency pair remains a different orientation.
 
 ## Phase 1 Market-Series Persistence Boundary
 
-The canonical domain may define additional type-specific market-series
-definition records before the relational schema has storage for them.
+Schema revision `0002_market_series_defs` establishes physical
+relational storage for the six additional frozen Phase 1 market-series
+definition families:
 
-Until a migration explicitly adds durable storage, writer support, reader
-support, constraints, and round-trip tests for those definition families, the
-persistence adapter must fail closed.
+- `policy_rate_definitions`;
+- `government_yield_definitions`;
+- `swap_rate_definitions`;
+- `credit_spread_definitions`;
+- `equity_index_definitions`;
+- `volatility_index_definitions`.
 
-The current pre-migration persistence boundary supports:
+Together with `fx_reference_rate_definitions`, these are one-to-one
+type-specific extensions of `market_series`.
 
-- `FX_REFERENCE_RATE` through `fx_reference_rate_definitions`.
+The database must enforce:
 
-It does not yet persist:
+- all seven permitted `market_series.series_type` values;
+- exactly one type-specific definition for every market series;
+- compatibility between the parent series type and the selected definition
+  table;
+- restrictive parent/definition relationships;
+- positive government-yield and swap tenors;
+- positive optional volatility horizon when populated;
+- uppercase three-letter currency codes where currency is an identity
+  dimension;
+- nonblank required textual identity dimensions;
+- the exact semantic identity tuples frozen by the domain model.
+
+For semantic identities containing nullable dimensions, database uniqueness must
+treat `NULL` as equal to `NULL`, matching Python `None` tuple equality. Ordinary
+PostgreSQL `UNIQUE` semantics are therefore insufficient for the nullable
+credit-spread segments and volatility horizon.
+
+Schema availability does not by itself authorize adapter writes.
+
+Until matching writer support, reader support, and real-PostgreSQL round-trip
+tests are implemented, `persist_canonical_dataset()` must continue to fail
+closed for:
 
 - `POLICY_RATE`;
 - `GOVERNMENT_YIELD`;
@@ -422,21 +448,15 @@ It does not yet persist:
 - `EQUITY_INDEX`;
 - `VOLATILITY_INDEX`.
 
-A `CanonicalDataset` may carry those newer frozen domain records so canonical
-validation can operate over the complete in-memory model. However,
-`persist_canonical_dataset()` must reject any dataset containing one or more of
-those unsupported definition families after domain validation and before
-opening the database transaction.
+The adapter must never silently omit a valid domain record merely because its
+write/read implementation is incomplete.
 
-The adapter must never silently omit a valid domain record merely because the
-current physical schema lacks a table for it.
+The fail-closed boundary may be removed only when schema, writer, reader,
+constraints, and round-trip tests jointly provide lossless support.
 
-The reader may continue reconstructing the physically supported persistence
-contract, with unsupported definition tuples empty, because the fail-closed
-writer prevents such records from entering this schema version.
-
-This boundary is temporary and must be removed only when a reviewed migration
-and matching writer/reader implementation provide lossless round-trip support.
+A downgrade from schema `0002` must refuse to proceed while any non-FX market
+series remains persisted. Downgrade must never silently destroy governed
+Phase 1 market-series records.
 
 ## Sources
 
@@ -917,6 +937,12 @@ Round-trip testing will therefore be required for:
 - lifecycle events;
 - market series;
 - FX reference-rate definitions;
+- policy-rate definitions;
+- government-yield definitions;
+- swap-rate definitions;
+- credit-spread definitions;
+- equity-index definitions;
+- volatility-index definitions;
 - sources;
 - evidence;
 - observations.
