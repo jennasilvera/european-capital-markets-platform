@@ -31,7 +31,6 @@ def persist_canonical_dataset(
     """
 
     validate_canonical_dataset(dataset)
-    _validate_persistence_support(dataset)
 
     with engine.begin() as connection:
         _persist_validated_dataset(connection, dataset)
@@ -42,40 +41,6 @@ def persist_canonical_dataset(
         connection.execute(
             sa.text("SET CONSTRAINTS ALL IMMEDIATE")
         )
-
-
-_UNSUPPORTED_MARKET_DEFINITION_FAMILIES = (
-    ("policy_rates", "POLICY_RATE"),
-    ("government_yields", "GOVERNMENT_YIELD"),
-    ("swap_rates", "SWAP_RATE"),
-    ("credit_spreads", "CREDIT_SPREAD"),
-    ("equity_indices", "EQUITY_INDEX"),
-    ("volatility_indices", "VOLATILITY_INDEX"),
-)
-
-
-def _validate_persistence_support(
-    dataset: CanonicalDataset,
-) -> None:
-    """Reject valid domain records the current schema cannot store losslessly."""
-
-    unsupported = tuple(
-        family_name
-        for attribute_name, family_name
-        in _UNSUPPORTED_MARKET_DEFINITION_FAMILIES
-        if getattr(dataset, attribute_name)
-    )
-
-    if not unsupported:
-        return
-
-    raise ValueError(
-        "Canonical PostgreSQL persistence does not yet support "
-        "market-series definition families: "
-        f"{', '.join(unsupported)}. "
-        "A schema migration and matching writer/reader support are "
-        "required before these records may be persisted."
-    )
 
 
 def _persist_validated_dataset(
@@ -90,6 +55,12 @@ def _persist_validated_dataset(
     _insert_instruments(connection, dataset)
     _insert_market_series(connection, dataset)
     _insert_fx_reference_rates(connection, dataset)
+    _insert_policy_rates(connection, dataset)
+    _insert_government_yields(connection, dataset)
+    _insert_swap_rates(connection, dataset)
+    _insert_credit_spreads(connection, dataset)
+    _insert_equity_indices(connection, dataset)
+    _insert_volatility_indices(connection, dataset)
 
     _insert_sources(connection, dataset)
     _insert_evidence(connection, dataset)
@@ -334,6 +305,233 @@ def _insert_fx_reference_rates(
             },
         )
 
+
+
+def _insert_policy_rates(
+    connection: Connection,
+    dataset: CanonicalDataset,
+) -> None:
+    for record in dataset.policy_rates:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO policy_rate_definitions (
+                    market_series_id,
+                    authority,
+                    jurisdiction,
+                    currency,
+                    rate_name,
+                    convention_ref
+                )
+                VALUES (
+                    :market_series_id,
+                    :authority,
+                    :jurisdiction,
+                    :currency,
+                    :rate_name,
+                    :convention_ref
+                )
+                """
+            ),
+            {
+                "market_series_id": record.market_series_id,
+                "authority": record.authority,
+                "jurisdiction": record.jurisdiction,
+                "currency": record.currency,
+                "rate_name": record.rate_name,
+                "convention_ref": record.convention_ref,
+            },
+        )
+
+
+def _insert_government_yields(
+    connection: Connection,
+    dataset: CanonicalDataset,
+) -> None:
+    for record in dataset.government_yields:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO government_yield_definitions (
+                    market_series_id,
+                    sovereign,
+                    jurisdiction,
+                    currency,
+                    tenor_months,
+                    benchmark_ref,
+                    convention_ref
+                )
+                VALUES (
+                    :market_series_id,
+                    :sovereign,
+                    :jurisdiction,
+                    :currency,
+                    :tenor_months,
+                    :benchmark_ref,
+                    :convention_ref
+                )
+                """
+            ),
+            {
+                "market_series_id": record.market_series_id,
+                "sovereign": record.sovereign,
+                "jurisdiction": record.jurisdiction,
+                "currency": record.currency,
+                "tenor_months": record.tenor_months,
+                "benchmark_ref": record.benchmark_ref,
+                "convention_ref": record.convention_ref,
+            },
+        )
+
+
+def _insert_swap_rates(
+    connection: Connection,
+    dataset: CanonicalDataset,
+) -> None:
+    for record in dataset.swap_rates:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO swap_rate_definitions (
+                    market_series_id,
+                    currency,
+                    tenor_months,
+                    floating_rate_ref,
+                    fixed_leg_convention_ref,
+                    convention_ref
+                )
+                VALUES (
+                    :market_series_id,
+                    :currency,
+                    :tenor_months,
+                    :floating_rate_ref,
+                    :fixed_leg_convention_ref,
+                    :convention_ref
+                )
+                """
+            ),
+            {
+                "market_series_id": record.market_series_id,
+                "currency": record.currency,
+                "tenor_months": record.tenor_months,
+                "floating_rate_ref": record.floating_rate_ref,
+                "fixed_leg_convention_ref": (
+                    record.fixed_leg_convention_ref
+                ),
+                "convention_ref": record.convention_ref,
+            },
+        )
+
+
+def _insert_credit_spreads(
+    connection: Connection,
+    dataset: CanonicalDataset,
+) -> None:
+    for record in dataset.credit_spreads:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO credit_spread_definitions (
+                    market_series_id,
+                    benchmark_family,
+                    currency,
+                    credit_universe,
+                    rating_segment,
+                    sector_segment,
+                    spread_measure,
+                    convention_ref
+                )
+                VALUES (
+                    :market_series_id,
+                    :benchmark_family,
+                    :currency,
+                    :credit_universe,
+                    :rating_segment,
+                    :sector_segment,
+                    :spread_measure,
+                    :convention_ref
+                )
+                """
+            ),
+            {
+                "market_series_id": record.market_series_id,
+                "benchmark_family": record.benchmark_family,
+                "currency": record.currency,
+                "credit_universe": record.credit_universe,
+                "rating_segment": record.rating_segment,
+                "sector_segment": record.sector_segment,
+                "spread_measure": record.spread_measure,
+                "convention_ref": record.convention_ref,
+            },
+        )
+
+
+def _insert_equity_indices(
+    connection: Connection,
+    dataset: CanonicalDataset,
+) -> None:
+    for record in dataset.equity_indices:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO equity_index_definitions (
+                    market_series_id,
+                    index_name,
+                    universe,
+                    index_variant_ref,
+                    methodology_ref
+                )
+                VALUES (
+                    :market_series_id,
+                    :index_name,
+                    :universe,
+                    :index_variant_ref,
+                    :methodology_ref
+                )
+                """
+            ),
+            {
+                "market_series_id": record.market_series_id,
+                "index_name": record.index_name,
+                "universe": record.universe,
+                "index_variant_ref": record.index_variant_ref,
+                "methodology_ref": record.methodology_ref,
+            },
+        )
+
+
+def _insert_volatility_indices(
+    connection: Connection,
+    dataset: CanonicalDataset,
+) -> None:
+    for record in dataset.volatility_indices:
+        connection.execute(
+            sa.text(
+                """
+                INSERT INTO volatility_index_definitions (
+                    market_series_id,
+                    index_name,
+                    underlying_ref,
+                    horizon_days,
+                    methodology_ref
+                )
+                VALUES (
+                    :market_series_id,
+                    :index_name,
+                    :underlying_ref,
+                    :horizon_days,
+                    :methodology_ref
+                )
+                """
+            ),
+            {
+                "market_series_id": record.market_series_id,
+                "index_name": record.index_name,
+                "underlying_ref": record.underlying_ref,
+                "horizon_days": record.horizon_days,
+                "methodology_ref": record.methodology_ref,
+            },
+        )
 
 def _insert_sources(
     connection: Connection,
