@@ -199,6 +199,54 @@
       "active_from": null,
       "active_to": null,
       "notes": "Main 30-day VSTOXX index based on EURO STOXX 50 options; symbol V2TX; ISIN DE000A0C3QF1."
+    },
+    {
+      "market_series_id": "MKS000000010",
+      "series_type": "CREDIT_SPREAD",
+      "display_label": "ICE BofA Euro Corporate Govt OAS",
+      "identity": {
+        "benchmark_family": "ICE BofA Euro Corporate Index",
+        "currency": "EUR",
+        "credit_universe": "Euro-denominated corporate securities in Eurobond or euro-member domestic markets",
+        "rating_segment": "INVESTMENT_GRADE",
+        "sector_segment": null,
+        "spread_measure": "GOVT_OAS",
+        "convention_ref": "ice-bofa/fixed-income-indices/government-oas"
+      },
+      "source_mapping": {
+        "publisher": "ICE Data Indices, LLC",
+        "source_tier": "ESTABLISHED_MARKET_DATA",
+        "source_type": "MARKET_DATA",
+        "provider_series_id": "ER00"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "ICE BofA Euro Corporate Index government option-adjusted spread benchmark. ER00 is the administrator index ticker; downstream distributor metric identifiers are not canonical reference IDs."
+    },
+    {
+      "market_series_id": "MKS000000011",
+      "series_type": "CREDIT_SPREAD",
+      "display_label": "ICE BofA Euro High Yield Govt OAS",
+      "identity": {
+        "benchmark_family": "ICE BofA Euro High Yield Index",
+        "currency": "EUR",
+        "credit_universe": "Euro-denominated corporate securities in Eurobond or euro-member domestic markets",
+        "rating_segment": "BELOW_INVESTMENT_GRADE",
+        "sector_segment": null,
+        "spread_measure": "GOVT_OAS",
+        "convention_ref": "ice-bofa/fixed-income-indices/government-oas"
+      },
+      "source_mapping": {
+        "publisher": "ICE Data Indices, LLC",
+        "source_tier": "ESTABLISHED_MARKET_DATA",
+        "source_type": "MARKET_DATA",
+        "provider_series_id": "HE00"
+      },
+      "expected_publication_frequency": "BUSINESS_DAILY",
+      "active_from": null,
+      "active_to": null,
+      "notes": "ICE BofA Euro High Yield Index government option-adjusted spread benchmark. HE00 is the administrator index ticker; downstream distributor metric identifiers are not canonical reference IDs."
     }
   ]
 }
