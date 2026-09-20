@@ -263,7 +263,7 @@ def fetch_ecb_csv(
     )
 
 
-def _validate_ecb_dfr_catalog_entry(
+def validate_ecb_dfr_catalog_entry(
     catalog_entry: MarketSeriesCatalogEntry,
 ) -> str:
     market_series = (
@@ -539,7 +539,7 @@ def fetch_ecb_dfr(
     """Retrieve and normalize controlled ECB DFR observations."""
 
     provider_series_id = (
-        _validate_ecb_dfr_catalog_entry(
+        validate_ecb_dfr_catalog_entry(
             catalog_entry
         )
     )

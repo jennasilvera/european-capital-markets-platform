@@ -252,9 +252,78 @@ The provider adapter returns:
 1. transport response bytes and safe response metadata; and
 2. provider-neutral `NormalizedMarketDatum` records.
 
-It deliberately does not fabricate an `archived_location`. Raw bytes must
-first be durably landed by the later raw-artifact writer before a
-`RawRetrievalArtifact` and canonical source/evidence lineage are constructed.
+The provider transport itself deliberately does not fabricate an
+`archived_location`. Step 13C supplies the controlled raw-artifact landing
+boundary that must run before normalization in an ingestion workflow.
+
+## Immutable Raw-Artifact Landing
+
+Step 13C implements an immutable filesystem store for retrieved market-data
+bytes.
+
+The production archive convention is:
+
+```text
+data/raw/<namespace>/<market_series_id>/<YYYY>/<MM>/<DD>/
+<UTC retrieval timestamp>_<storage token>.<suffix>
+```
+
+The storage token is a UUID used only to distinguish filesystem retrieval
+events. It is not a canonical entity identifier, is not derived from the
+content digest, and does not replace `SRC`, `EVD`, or `OBS` allocation.
+
+A successful landing performs these operations in order:
+
+1. validate retrieval metadata and content integrity inputs before creating
+   archive content;
+2. create or open archive directories without following symbolic links;
+3. write exact response bytes to an exclusively created staging file in the
+   destination directory;
+4. flush and `fsync` the staging file;
+5. atomically hard-link the completed staging inode to the final archive name;
+6. `fsync` the destination directory;
+7. remove the staging directory entry;
+8. `fsync` the destination directory again;
+9. read the landed bytes and verify SHA-256 and byte length against the
+   returned `RawRetrievalArtifact`.
+
+The hard-link publication step is intentionally used instead of `os.replace`.
+`os.replace` can overwrite an existing destination. Hard-link creation is
+atomic and fails if the final archive name already exists, preserving the
+no-silent-overwrite rule.
+
+Path components are controlled. Parent traversal is rejected and archive
+directories are opened with no-follow semantics so an existing symbolic link
+cannot redirect landing outside the controlled raw root.
+
+Identical provider bytes retrieved at different times or under different
+storage tokens remain distinct retrieval events even though their SHA-256
+digests are equal.
+
+Raw bytes remain excluded from Git under the existing `data/raw/` ignore
+policy.
+
+## Retrieve-Land-Normalize Orchestration
+
+Step 13C also introduces the first controlled orchestration boundary for ECB
+Deposit Facility Rate ingestion:
+
+```text
+retrieve -> land immutable raw bytes -> verify raw integrity -> normalize
+```
+
+The raw artifact must exist before provider parsing begins. If parsing or
+normalization fails, the landed provider bytes remain preserved for diagnosis
+and later exception handling.
+
+The orchestration result stops at the provider-neutral normalized datum
+boundary. It does not allocate canonical lineage IDs, construct canonical
+source/evidence/observation records, or write canonical database state.
+
+The existing provider convenience helper that retrieves and normalizes ECB
+data is not the canonical ingestion workflow. Any workflow intended to feed
+canonical persistence must pass through the raw-landing orchestration boundary
+first.
 
 ## Remaining Deliberately Deferred
 
@@ -264,7 +333,6 @@ The following remain separate reviewed increments:
 - rate-limit handling;
 - provider credentials and entitlement mechanisms;
 - ingestion scheduling;
-- immutable raw-artifact filesystem writer;
 - staged-data persistence;
 - ingestion-run audit persistence;
 - exception/quarantine persistence;

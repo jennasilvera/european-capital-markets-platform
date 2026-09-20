@@ -8,6 +8,7 @@ from european_capital_markets.ingestion.providers.ecb import (
     fetch_ecb_csv,
     fetch_ecb_dfr,
     parse_ecb_dfr_csv,
+    validate_ecb_dfr_catalog_entry,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "fetch_ecb_csv",
     "fetch_ecb_dfr",
     "parse_ecb_dfr_csv",
+    "validate_ecb_dfr_catalog_entry",
 ]
