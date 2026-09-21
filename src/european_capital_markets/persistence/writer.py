@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 
 import sqlalchemy as sa
@@ -13,7 +15,22 @@ from european_capital_markets.domain.dataset import (
     CanonicalDataset,
     validate_canonical_dataset,
 )
-from european_capital_markets.domain.lineage import ObservationRecord
+from european_capital_markets.domain.lineage import (
+    EvidenceRecord,
+    ObservationRecord,
+    SourceRecord,
+)
+from european_capital_markets.domain.market_data import (
+    CreditSpreadDefinitionRecord,
+    EquityIndexDefinitionRecord,
+    FXReferenceRateDefinitionRecord,
+    GovernmentYieldDefinitionRecord,
+    MarketSeriesRecord,
+    PolicyRateDefinitionRecord,
+    SwapRateDefinitionRecord,
+    VolatilityIndexDefinitionRecord,
+)
+from european_capital_markets.domain.taxonomy import EntityType
 
 
 def persist_canonical_dataset(
@@ -41,6 +58,102 @@ def persist_canonical_dataset(
         connection.execute(
             sa.text("SET CONSTRAINTS ALL IMMEDIATE")
         )
+
+
+class MarketObservationAppendStatus(StrEnum):
+    """Outcome of one canonical market-observation append attempt."""
+
+    INSERTED = "INSERTED"
+    ALREADY_PERSISTED = "ALREADY_PERSISTED"
+
+
+class MarketObservationAppendConflictError(ValueError):
+    """Raised when canonical IDs or controlled subjects conflict with storage."""
+
+
+def persist_market_observation_batch(
+    engine: Engine,
+    dataset: CanonicalDataset,
+) -> MarketObservationAppendStatus:
+    """Append one governed market-observation batch against an existing series.
+
+    The supplied dataset must retain the concrete market-series subject and its
+    exactly one type-specific definition so normal canonical validation remains
+    authoritative. Persistence does not reinsert or update that controlled
+    subject.
+
+    Canonical-ID replay semantics are explicit:
+
+    - if every lineage ID is absent, the lineage batch is inserted atomically;
+    - if every lineage ID already exists and is byte-for-byte equivalent at the
+      canonical relational boundary, the operation returns ALREADY_PERSISTED;
+    - partial presence or any content mismatch fails closed.
+
+    A new retrieval with newly allocated SRC/EVD/OBS identifiers remains a new
+    append even when it reports the same series, field, analytical date, and
+    value as an earlier observation.
+    """
+
+    validate_canonical_dataset(dataset)
+
+    series, definition = (
+        _validate_market_observation_append_shape(
+            dataset
+        )
+    )
+
+    with engine.begin() as connection:
+        _lock_and_validate_existing_market_series(
+            connection,
+            series,
+            definition,
+        )
+
+        presence = _classify_lineage_presence(
+            connection,
+            dataset,
+        )
+
+        if presence == "PRESENT":
+            _require_existing_market_lineage_matches(
+                connection,
+                dataset,
+            )
+
+            result = (
+                MarketObservationAppendStatus.ALREADY_PERSISTED
+            )
+        else:
+            _insert_sources(
+                connection,
+                dataset,
+            )
+            _insert_evidence(
+                connection,
+                dataset,
+            )
+            _insert_observations(
+                connection,
+                dataset,
+            )
+            _insert_observation_evidence(
+                connection,
+                dataset,
+            )
+            _insert_observation_inputs(
+                connection,
+                dataset,
+            )
+
+            result = MarketObservationAppendStatus.INSERTED
+
+        connection.execute(
+            sa.text(
+                "SET CONSTRAINTS ALL IMMEDIATE"
+            )
+        )
+
+    return result
 
 
 def _persist_validated_dataset(
@@ -958,6 +1071,673 @@ def _insert_observation_inputs(
                     "input_ordinal": ordinal,
                 },
             )
+
+
+_MARKET_DEFINITION_TABLE_BY_TYPE: dict[type[Any], str] = {
+    FXReferenceRateDefinitionRecord:
+        "fx_reference_rate_definitions",
+    PolicyRateDefinitionRecord:
+        "policy_rate_definitions",
+    GovernmentYieldDefinitionRecord:
+        "government_yield_definitions",
+    SwapRateDefinitionRecord:
+        "swap_rate_definitions",
+    CreditSpreadDefinitionRecord:
+        "credit_spread_definitions",
+    EquityIndexDefinitionRecord:
+        "equity_index_definitions",
+    VolatilityIndexDefinitionRecord:
+        "volatility_index_definitions",
+}
+
+
+def _validate_market_observation_append_shape(
+    dataset: CanonicalDataset,
+) -> tuple[MarketSeriesRecord, Any]:
+    """Require one controlled market-series lineage append unit."""
+
+    non_market_collections = {
+        "issuers": dataset.issuers,
+        "transactions": dataset.transactions,
+        "instruments": dataset.instruments,
+        "issuer_identifiers": dataset.issuer_identifiers,
+        "parties": dataset.parties,
+        "participations": dataset.participations,
+        "lifecycle_events": dataset.lifecycle_events,
+    }
+
+    populated_non_market = sorted(
+        name
+        for name, records
+        in non_market_collections.items()
+        if records
+    )
+
+    if populated_non_market:
+        raise ValueError(
+            "Market-observation append batches must not "
+            "contain non-market canonical entities: "
+            f"{populated_non_market!r}."
+        )
+
+    if len(dataset.market_series) != 1:
+        raise ValueError(
+            "Market-observation append requires exactly "
+            "one market-series subject."
+        )
+
+    definitions = (
+        *dataset.fx_reference_rates,
+        *dataset.policy_rates,
+        *dataset.government_yields,
+        *dataset.swap_rates,
+        *dataset.credit_spreads,
+        *dataset.equity_indices,
+        *dataset.volatility_indices,
+    )
+
+    if len(definitions) != 1:
+        raise ValueError(
+            "Market-observation append requires exactly "
+            "one type-specific market-series definition."
+        )
+
+    if len(dataset.sources) != 1:
+        raise ValueError(
+            "Market-observation append requires exactly "
+            "one canonical source record."
+        )
+
+    if not dataset.evidence:
+        raise ValueError(
+            "Market-observation append requires at least "
+            "one canonical evidence record."
+        )
+
+    if not dataset.observations:
+        raise ValueError(
+            "Market-observation append requires at least "
+            "one canonical observation."
+        )
+
+    series = dataset.market_series[0]
+
+    for observation in dataset.observations:
+        if (
+            observation.subject_type
+            is not EntityType.MARKET_SERIES
+            or observation.subject_id
+            != series.market_series_id
+        ):
+            raise ValueError(
+                "Every observation in a market append batch "
+                "must reference its single market-series subject."
+            )
+
+    return (
+        series,
+        definitions[0],
+    )
+
+
+def _lock_and_validate_existing_market_series(
+    connection: Connection,
+    series: MarketSeriesRecord,
+    definition: Any,
+) -> None:
+    """Lock and require exact controlled-subject equivalence."""
+
+    row = connection.execute(
+        sa.text(
+            """
+            SELECT
+                market_series_id,
+                series_type,
+                series_label
+            FROM market_series
+            WHERE market_series_id = :market_series_id
+            FOR UPDATE
+            """
+        ),
+        {
+            "market_series_id":
+                series.market_series_id,
+        },
+    ).mappings().one_or_none()
+
+    if row is None:
+        raise MarketObservationAppendConflictError(
+            "Market-observation append requires an "
+            "already-persisted market series: "
+            f"{series.market_series_id!r}."
+        )
+
+    expected_series = {
+        "market_series_id":
+            series.market_series_id,
+        "series_type":
+            series.series_type.value,
+        "series_label":
+            series.series_label,
+    }
+
+    if dict(row) != expected_series:
+        raise MarketObservationAppendConflictError(
+            "Persisted market-series identity does not "
+            "match the append handoff for "
+            f"{series.market_series_id!r}."
+        )
+
+    try:
+        table_name = (
+            _MARKET_DEFINITION_TABLE_BY_TYPE[
+                type(definition)
+            ]
+        )
+    except KeyError as exc:
+        raise ValueError(
+            "Unsupported market-series definition type "
+            f"for append persistence: "
+            f"{type(definition).__name__}."
+        ) from exc
+
+    column_names = tuple(
+        field.name
+        for field in fields(
+            definition
+        )
+    )
+
+    columns_sql = ", ".join(
+        column_names
+    )
+
+    definition_row = connection.execute(
+        sa.text(
+            f"""
+            SELECT
+                {columns_sql}
+            FROM {table_name}
+            WHERE market_series_id = :market_series_id
+            FOR UPDATE
+            """
+        ),
+        {
+            "market_series_id":
+                series.market_series_id,
+        },
+    ).mappings().one_or_none()
+
+    expected_definition = {
+        field.name:
+            getattr(
+                definition,
+                field.name,
+            )
+        for field in fields(
+            definition
+        )
+    }
+
+    if (
+        definition_row is None
+        or dict(definition_row)
+        != expected_definition
+    ):
+        raise MarketObservationAppendConflictError(
+            "Persisted type-specific market-series "
+            "definition does not match the append handoff "
+            f"for {series.market_series_id!r}."
+        )
+
+
+def _classify_lineage_presence(
+    connection: Connection,
+    dataset: CanonicalDataset,
+) -> str:
+    """Classify one lineage batch as fully absent or fully present."""
+
+    identities: list[
+        tuple[str, bool]
+    ] = []
+
+    source = dataset.sources[0]
+
+    identities.append(
+        (
+            f"source:{source.source_id}",
+            _canonical_row_exists(
+                connection,
+                table_name="sources",
+                id_column="source_id",
+                identifier=source.source_id,
+            ),
+        )
+    )
+
+    for record in dataset.evidence:
+        identities.append(
+            (
+                f"evidence:{record.evidence_id}",
+                _canonical_row_exists(
+                    connection,
+                    table_name="evidence",
+                    id_column="evidence_id",
+                    identifier=record.evidence_id,
+                ),
+            )
+        )
+
+    for record in dataset.observations:
+        identities.append(
+            (
+                f"observation:{record.observation_id}",
+                _canonical_row_exists(
+                    connection,
+                    table_name="observations",
+                    id_column="observation_id",
+                    identifier=record.observation_id,
+                ),
+            )
+        )
+
+    present = tuple(
+        name
+        for name, exists
+        in identities
+        if exists
+    )
+
+    missing = tuple(
+        name
+        for name, exists
+        in identities
+        if not exists
+    )
+
+    if not present:
+        return "ABSENT"
+
+    if not missing:
+        return "PRESENT"
+
+    raise MarketObservationAppendConflictError(
+        "Partial canonical-ID replay is not permitted. "
+        f"Present IDs: {present!r}; "
+        f"missing IDs: {missing!r}."
+    )
+
+
+def _canonical_row_exists(
+    connection: Connection,
+    *,
+    table_name: str,
+    id_column: str,
+    identifier: str,
+) -> bool:
+    """Return whether one canonical-ID row exists."""
+
+    allowed = {
+        ("sources", "source_id"),
+        ("evidence", "evidence_id"),
+        ("observations", "observation_id"),
+    }
+
+    if (
+        table_name,
+        id_column,
+    ) not in allowed:
+        raise ValueError(
+            "Unsupported canonical existence lookup."
+        )
+
+    return (
+        connection.execute(
+            sa.text(
+                f"""
+                SELECT 1
+                FROM {table_name}
+                WHERE {id_column} = :identifier
+                """
+            ),
+            {
+                "identifier": identifier,
+            },
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
+def _require_existing_market_lineage_matches(
+    connection: Connection,
+    dataset: CanonicalDataset,
+) -> None:
+    """Require a fully present canonical-ID replay to match exactly."""
+
+    source = dataset.sources[0]
+
+    _require_existing_source_matches(
+        connection,
+        source,
+    )
+
+    expected_source_evidence_ids = tuple(
+        sorted(
+            record.evidence_id
+            for record in dataset.evidence
+        )
+    )
+
+    actual_source_evidence_ids = tuple(
+        row["evidence_id"]
+        for row in connection.execute(
+            sa.text(
+                """
+                SELECT evidence_id
+                FROM evidence
+                WHERE source_id = :source_id
+                ORDER BY evidence_id
+                FOR SHARE
+                """
+            ),
+            {
+                "source_id": source.source_id,
+            },
+        ).mappings()
+    )
+
+    if (
+        actual_source_evidence_ids
+        != expected_source_evidence_ids
+    ):
+        raise MarketObservationAppendConflictError(
+            "Existing source evidence namespace does not "
+            "match the replayed retrieval for "
+            f"{source.source_id!r}."
+        )
+
+    for record in dataset.evidence:
+        _require_existing_evidence_matches(
+            connection,
+            record,
+        )
+
+    for record in dataset.observations:
+        _require_existing_observation_matches(
+            connection,
+            record,
+        )
+
+
+def _require_existing_source_matches(
+    connection: Connection,
+    record: SourceRecord,
+) -> None:
+    row = connection.execute(
+        sa.text(
+            """
+            SELECT
+                source_id,
+                source_tier,
+                source_type,
+                publisher,
+                title,
+                access_date,
+                document_date,
+                publication_date,
+                url,
+                archived_location,
+                document_version,
+                notes
+            FROM sources
+            WHERE source_id = :source_id
+            FOR SHARE
+            """
+        ),
+        {
+            "source_id": record.source_id,
+        },
+    ).mappings().one()
+
+    expected = {
+        "source_id": record.source_id,
+        "source_tier": int(record.tier),
+        "source_type":
+            record.source_type.value,
+        "publisher": record.publisher,
+        "title": record.title,
+        "access_date": record.access_date,
+        "document_date":
+            record.document_date,
+        "publication_date":
+            record.publication_date,
+        "url": record.url,
+        "archived_location":
+            record.archived_location,
+        "document_version":
+            record.document_version,
+        "notes": record.notes,
+    }
+
+    if dict(row) != expected:
+        raise MarketObservationAppendConflictError(
+            "Existing source content does not match "
+            f"canonical replay ID {record.source_id!r}."
+        )
+
+
+def _require_existing_evidence_matches(
+    connection: Connection,
+    record: EvidenceRecord,
+) -> None:
+    row = connection.execute(
+        sa.text(
+            """
+            SELECT
+                evidence_id,
+                source_id,
+                locator,
+                label,
+                notes
+            FROM evidence
+            WHERE evidence_id = :evidence_id
+            FOR SHARE
+            """
+        ),
+        {
+            "evidence_id":
+                record.evidence_id,
+        },
+    ).mappings().one()
+
+    expected = {
+        "evidence_id":
+            record.evidence_id,
+        "source_id":
+            record.source_id,
+        "locator":
+            record.locator,
+        "label":
+            record.label,
+        "notes":
+            record.notes,
+    }
+
+    if dict(row) != expected:
+        raise MarketObservationAppendConflictError(
+            "Existing evidence content does not match "
+            f"canonical replay ID {record.evidence_id!r}."
+        )
+
+
+def _require_existing_observation_matches(
+    connection: Connection,
+    record: ObservationRecord,
+) -> None:
+    scalar_storage = _encode_scalar_value(
+        record
+    )
+
+    row = connection.execute(
+        sa.text(
+            """
+            SELECT
+                observation_id,
+                subject_type,
+                subject_id,
+                field_name,
+                as_of_date,
+                verification_state,
+                verified_at,
+                scalar_type,
+                text_value,
+                integer_value,
+                decimal_value,
+                boolean_value,
+                date_value,
+                datetime_value,
+                value_class,
+                missing_state,
+                unit,
+                currency,
+                derivation_ref,
+                notes
+            FROM observations
+            WHERE observation_id = :observation_id
+            FOR SHARE
+            """
+        ),
+        {
+            "observation_id":
+                record.observation_id,
+        },
+    ).mappings().one()
+
+    expected = {
+        "observation_id":
+            record.observation_id,
+        "subject_type":
+            record.subject_type.value,
+        "subject_id":
+            record.subject_id,
+        "field_name":
+            record.field_name,
+        "as_of_date":
+            record.as_of_date,
+        "verification_state":
+            record.verification_state.value,
+        "verified_at":
+            record.verified_at,
+        **scalar_storage,
+        "value_class": (
+            record.value_class.value
+            if record.value_class
+            is not None
+            else None
+        ),
+        "missing_state": (
+            record.missing_state.value
+            if record.missing_state
+            is not None
+            else None
+        ),
+        "unit":
+            record.unit,
+        "currency":
+            record.currency,
+        "derivation_ref":
+            record.derivation_ref,
+        "notes":
+            record.notes,
+    }
+
+    if dict(row) != expected:
+        raise MarketObservationAppendConflictError(
+            "Existing observation content does not match "
+            f"canonical replay ID {record.observation_id!r}."
+        )
+
+    actual_evidence = tuple(
+        (
+            row["evidence_id"],
+            row["evidence_ordinal"],
+        )
+        for row in connection.execute(
+            sa.text(
+                """
+                SELECT
+                    evidence_id,
+                    evidence_ordinal
+                FROM observation_evidence
+                WHERE observation_id = :observation_id
+                ORDER BY evidence_ordinal
+                FOR SHARE
+                """
+            ),
+            {
+                "observation_id":
+                    record.observation_id,
+            },
+        ).mappings()
+    )
+
+    expected_evidence = tuple(
+        (
+            evidence_id,
+            ordinal,
+        )
+        for ordinal, evidence_id
+        in enumerate(
+            record.evidence_ids
+        )
+    )
+
+    if actual_evidence != expected_evidence:
+        raise MarketObservationAppendConflictError(
+            "Existing observation evidence does not match "
+            f"canonical replay ID {record.observation_id!r}."
+        )
+
+    actual_inputs = tuple(
+        (
+            row["input_observation_id"],
+            row["input_ordinal"],
+        )
+        for row in connection.execute(
+            sa.text(
+                """
+                SELECT
+                    input_observation_id,
+                    input_ordinal
+                FROM observation_inputs
+                WHERE derived_observation_id = :observation_id
+                ORDER BY input_ordinal
+                FOR SHARE
+                """
+            ),
+            {
+                "observation_id":
+                    record.observation_id,
+            },
+        ).mappings()
+    )
+
+    expected_inputs = tuple(
+        (
+            input_id,
+            ordinal,
+        )
+        for ordinal, input_id
+        in enumerate(
+            record.input_observation_ids
+        )
+    )
+
+    if actual_inputs != expected_inputs:
+        raise MarketObservationAppendConflictError(
+            "Existing observation inputs do not match "
+            f"canonical replay ID {record.observation_id!r}."
+        )
 
 
 def _empty_scalar_storage() -> dict[str, Any]:

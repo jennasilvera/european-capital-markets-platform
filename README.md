@@ -757,7 +757,7 @@ This keeps database correctness separate from local environment availability.
 | PostgreSQL lossless market round trip | Implemented |
 | Controlled reference-series catalog | Implemented |
 | Concrete provider mappings | Implemented for initial Phase 1 coverage — ECB, Bundesbank, ICE Swap Rate, STOXX/VSTOXX, and ICE BofA EUR IG/HY credit |
-| Market-data ingestion | Architecture in progress — provider-neutral contract, ECB SDMX CSV transport/adapter, immutable raw landing, retrieve-land-normalize orchestration, and validated canonical handoff implemented; append persistence, idempotency/revision policy, and scheduling pending |
+| Market-data ingestion | Architecture in progress — provider-neutral contract, ECB SDMX CSV transport/adapter, immutable raw landing, retrieve-land-normalize orchestration, validated canonical handoff, and controlled append persistence implemented; canonical identifier allocation, end-to-end persistence orchestration, and scheduling pending |
 | Market analytics | Planned |
 | Financing models | Planned |
 | Client-facing outputs | Planned |
@@ -802,10 +802,12 @@ Controlled Outputs
 
 The controlled market reference-series catalog, initial reviewed provider
 mappings, provider-neutral ingestion contract, ECB SDMX CSV transport,
-immutable raw-artifact landing, retrieve-land-normalize orchestration, and
-validated canonical lineage handoff are implemented. The next Phase 1 work
-is a reviewed append-persistence contract for observations against existing
-market-series subjects, including explicit idempotency/revision semantics.
+immutable raw-artifact landing, retrieve-land-normalize orchestration,
+validated canonical lineage handoff, and controlled append persistence are
+implemented. The next Phase 1 work is canonical identifier allocation and
+end-to-end ingestion-to-persistence orchestration. Broader correction and
+retraction workflows, scheduling, retries, and operational run-state
+persistence remain separate reviewed increments.
 
 The catalog governs selection metadata such as:
 
