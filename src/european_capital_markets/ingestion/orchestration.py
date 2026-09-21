@@ -7,9 +7,26 @@ from uuid import UUID
 
 import httpx
 
+from european_capital_markets.domain.dataset import (
+    CanonicalDataset,
+    validate_canonical_dataset,
+)
+from european_capital_markets.domain.market_data import (
+    CreditSpreadDefinitionRecord,
+    EquityIndexDefinitionRecord,
+    FXReferenceRateDefinitionRecord,
+    GovernmentYieldDefinitionRecord,
+    PolicyRateDefinitionRecord,
+    SwapRateDefinitionRecord,
+    VolatilityIndexDefinitionRecord,
+)
 from european_capital_markets.ingestion.contracts import (
+    AllocatedLineageIds,
+    MarketLineageRecords,
     NormalizedMarketDatum,
+    RawRetrievalArtifact,
     RetrievalSource,
+    build_pending_market_lineage,
 )
 from european_capital_markets.ingestion.providers.ecb import (
     fetch_ecb_csv,
@@ -131,4 +148,229 @@ def retrieve_land_normalize_ecb_dfr(
         retrieval=retrieval,
         raw_landing=raw_landing,
         datums=datums,
+    )
+
+@dataclass(frozen=True, slots=True)
+class CanonicalMarketIngestionHandoff:
+    """Validated canonical representation of one raw retrieval."""
+
+    dataset: CanonicalDataset
+    lineage: tuple[MarketLineageRecords, ...]
+
+
+def _market_definition_buckets(
+    catalog_entry: MarketSeriesCatalogEntry,
+) -> dict[str, tuple[object, ...]]:
+    """Place one controlled definition in its canonical dataset bucket."""
+
+    definition = catalog_entry.definition
+
+    buckets: dict[str, tuple[object, ...]] = {
+        "fx_reference_rates": (),
+        "policy_rates": (),
+        "government_yields": (),
+        "swap_rates": (),
+        "credit_spreads": (),
+        "equity_indices": (),
+        "volatility_indices": (),
+    }
+
+    if isinstance(
+        definition,
+        FXReferenceRateDefinitionRecord,
+    ):
+        buckets["fx_reference_rates"] = (
+            definition,
+        )
+    elif isinstance(
+        definition,
+        PolicyRateDefinitionRecord,
+    ):
+        buckets["policy_rates"] = (
+            definition,
+        )
+    elif isinstance(
+        definition,
+        GovernmentYieldDefinitionRecord,
+    ):
+        buckets["government_yields"] = (
+            definition,
+        )
+    elif isinstance(
+        definition,
+        SwapRateDefinitionRecord,
+    ):
+        buckets["swap_rates"] = (
+            definition,
+        )
+    elif isinstance(
+        definition,
+        CreditSpreadDefinitionRecord,
+    ):
+        buckets["credit_spreads"] = (
+            definition,
+        )
+    elif isinstance(
+        definition,
+        EquityIndexDefinitionRecord,
+    ):
+        buckets["equity_indices"] = (
+            definition,
+        )
+    elif isinstance(
+        definition,
+        VolatilityIndexDefinitionRecord,
+    ):
+        buckets["volatility_indices"] = (
+            definition,
+        )
+    else:
+        raise TypeError(
+            "Unsupported market-series definition type: "
+            f"{type(definition).__name__}."
+        )
+
+    return buckets
+
+
+def build_canonical_market_ingestion_handoff(
+    catalog_entry: MarketSeriesCatalogEntry,
+    artifact: RawRetrievalArtifact,
+    datums: tuple[NormalizedMarketDatum, ...],
+    allocated_ids: tuple[AllocatedLineageIds, ...],
+) -> CanonicalMarketIngestionHandoff:
+    """Build and validate one canonical handoff from a landed retrieval.
+
+    Identifier allocation remains external. One raw retrieval maps to exactly
+    one canonical source record, while each normalized datum receives its own
+    evidence and observation identifiers.
+
+    This function intentionally does not persist the returned dataset. The
+    current canonical writer is insert-oriented; recurring observation
+    ingestion needs separately reviewed append/idempotency semantics before
+    production persistence orchestration is safe.
+    """
+
+    if not datums:
+        raise ValueError(
+            "Canonical market-ingestion handoff requires "
+            "at least one normalized datum."
+        )
+
+    if len(datums) != len(
+        allocated_ids
+    ):
+        raise ValueError(
+            "allocated_ids must contain exactly one lineage-ID "
+            "bundle per normalized datum."
+        )
+
+    source_ids = {
+        ids.source_id
+        for ids in allocated_ids
+    }
+
+    if len(source_ids) != 1:
+        raise ValueError(
+            "All normalized datums from one raw retrieval must "
+            "share one externally allocated source_id."
+        )
+
+    lineage = tuple(
+        build_pending_market_lineage(
+            catalog_entry,
+            artifact,
+            datum,
+            ids,
+        )
+        for datum, ids in zip(
+            datums,
+            allocated_ids,
+            strict=True,
+        )
+    )
+
+    source = lineage[0].source
+
+    if any(
+        records.source != source
+        for records in lineage[1:]
+    ):
+        raise ValueError(
+            "One raw retrieval produced inconsistent canonical "
+            "source records."
+        )
+
+    definition_buckets = (
+        _market_definition_buckets(
+            catalog_entry
+        )
+    )
+
+    dataset = CanonicalDataset(
+        issuers=(),
+        transactions=(),
+        instruments=(),
+        issuer_identifiers=(),
+        parties=(),
+        participations=(),
+        lifecycle_events=(),
+        market_series=(
+            catalog_entry.market_series,
+        ),
+        fx_reference_rates=(
+            definition_buckets[
+                "fx_reference_rates"
+            ]
+        ),
+        policy_rates=(
+            definition_buckets[
+                "policy_rates"
+            ]
+        ),
+        government_yields=(
+            definition_buckets[
+                "government_yields"
+            ]
+        ),
+        swap_rates=(
+            definition_buckets[
+                "swap_rates"
+            ]
+        ),
+        credit_spreads=(
+            definition_buckets[
+                "credit_spreads"
+            ]
+        ),
+        equity_indices=(
+            definition_buckets[
+                "equity_indices"
+            ]
+        ),
+        volatility_indices=(
+            definition_buckets[
+                "volatility_indices"
+            ]
+        ),
+        sources=(
+            source,
+        ),
+        evidence=tuple(
+            records.evidence
+            for records in lineage
+        ),
+        observations=tuple(
+            records.observation
+            for records in lineage
+        ),
+    )
+
+    validate_canonical_dataset(
+        dataset
+    )
+
+    return CanonicalMarketIngestionHandoff(
+        dataset=dataset,
+        lineage=lineage,
     )
