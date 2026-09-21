@@ -429,6 +429,58 @@ calculated observations that depend on observations outside the supplied
 validated dataset. Such cross-batch calculation-lineage requirements remain a
 separate reviewed design problem if needed.
 
+## Step 13F canonical lineage identifier allocation
+
+Step 13F introduces PostgreSQL-backed allocation for recurring
+market-ingestion lineage identifiers only.
+
+The controlled allocator owns these namespaces:
+
+- `SRC` for canonical source records;
+- `EVD` for canonical evidence records;
+- `OBS` for canonical observations.
+
+`MKS` identifiers remain governed by the reviewed market reference catalog.
+Issuer, transaction, instrument, party, participation, lifecycle-event,
+assumption, and release allocation remain outside this increment.
+
+Each namespace uses an independent PostgreSQL `bigint` sequence bounded to the
+existing nine-digit canonical range `1..999999999`. The sequences do not cycle.
+
+Migration initializes each sequence above the highest already-persisted
+identifier in that namespace. An existing namespace at `999999999` is treated
+as exhausted rather than wrapped or reused.
+
+Sequence values are deliberately not transactional. A failed transaction,
+failed persistence attempt, or abandoned allocation may therefore create gaps.
+Those gaps are valid. The numeric component of a canonical identifier conveys
+identity only and must not be interpreted as chronology.
+
+One market retrieval allocation returns:
+
+- one `source_id`, shared by every normalized datum from that retrieval;
+- one distinct `evidence_id` per datum;
+- one distinct `observation_id` per datum.
+
+Allocation itself is not idempotent. Calling the allocator again creates a new
+allocation. A retry of the same logical ingestion attempt must retain and reuse
+its prior `AllocatedLineageIds` bundle. Durable ingestion-run state and
+crash-recovery persistence remain separate reviewed work.
+
+Downgrade is fail-closed. The allocation migration refuses to drop a sequence
+when that sequence has issued identifiers above the highest persisted canonical
+identifier in its namespace. This prevents downgrade/re-upgrade cycles from
+silently reissuing an identifier that was allocated but never persisted.
+
+Step 13F does not:
+
+- allocate controlled market-series identifiers;
+- allocate non-lineage canonical entity identifiers;
+- derive identifiers from provider keys, hashes, dates, or values;
+- alter Step 13E replay semantics;
+- orchestrate retrieval through canonical persistence;
+- add scheduler, retry, quarantine, or run-state persistence.
+
 ## Remaining Deliberately Deferred
 
 The following remain separate reviewed increments:
@@ -440,7 +492,6 @@ The following remain separate reviewed increments:
 - staged-data persistence;
 - ingestion-run audit persistence;
 - exception/quarantine persistence;
-- canonical identifier allocation;
 - broader correction/retraction workflows beyond canonical-ID replay;
 - end-to-end canonical persistence orchestration;
 - additional provider adapters.
