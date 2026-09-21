@@ -757,7 +757,7 @@ This keeps database correctness separate from local environment availability.
 | PostgreSQL lossless market round trip | Implemented |
 | Controlled reference-series catalog | Implemented |
 | Concrete provider mappings | Implemented for initial Phase 1 coverage — ECB, Bundesbank, ICE Swap Rate, STOXX/VSTOXX, and ICE BofA EUR IG/HY credit |
-| Market-data ingestion | Architecture in progress — provider-neutral contract, ECB SDMX CSV transport/adapter, immutable raw landing, retrieve-land-normalize orchestration, validated canonical handoff, controlled append persistence, and PostgreSQL-backed canonical lineage identifier allocation implemented; end-to-end persistence orchestration and scheduling pending |
+| Market-data ingestion | Architecture in progress — provider-neutral contract, ECB SDMX CSV transport/adapter, immutable raw landing, retrieve-land-normalize orchestration, validated canonical handoff, controlled append persistence, PostgreSQL-backed canonical lineage identifier allocation, and ECB DFR end-to-end canonical persistence orchestration implemented; scheduling and additional provider orchestration pending |
 | Market analytics | Planned |
 | Financing models | Planned |
 | Client-facing outputs | Planned |
@@ -805,10 +805,10 @@ mappings, provider-neutral ingestion contract, ECB SDMX CSV transport,
 immutable raw-artifact landing, retrieve-land-normalize orchestration,
 validated canonical lineage handoff, and controlled append persistence are
 implemented. PostgreSQL-backed canonical lineage allocation for `SRC`, `EVD`,
-and `OBS` is also implemented. The next Phase 1 work is end-to-end
-ingestion-to-persistence orchestration. Broader correction and
-retraction workflows, scheduling, retries, and operational run-state
-persistence remain separate reviewed increments.
+and `OBS` and the ECB DFR end-to-end ingestion-to-persistence composition are
+also implemented. Scheduling, retries, operational run-state persistence,
+additional provider adapters, and broader correction/retraction workflows
+remain separate reviewed increments.
 
 The catalog governs selection metadata such as:
 

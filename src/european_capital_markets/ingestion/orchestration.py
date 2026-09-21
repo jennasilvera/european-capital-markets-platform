@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 import httpx
+from sqlalchemy import Engine
 
 from european_capital_markets.domain.dataset import (
     CanonicalDataset,
@@ -39,6 +40,13 @@ from european_capital_markets.ingestion.raw_storage import (
 )
 from european_capital_markets.ingestion.transport import (
     HttpRetrievedPayload,
+)
+from european_capital_markets.persistence.id_allocation import (
+    allocate_market_lineage_ids,
+)
+from european_capital_markets.persistence.writer import (
+    MarketObservationAppendStatus,
+    persist_market_observation_batch,
 )
 from european_capital_markets.reference_data.market_series_catalog import (
     MarketSeriesCatalogEntry,
@@ -245,10 +253,9 @@ def build_canonical_market_ingestion_handoff(
     one canonical source record, while each normalized datum receives its own
     evidence and observation identifiers.
 
-    This function intentionally does not persist the returned dataset. The
-    current canonical writer is insert-oriented; recurring observation
-    ingestion needs separately reviewed append/idempotency semantics before
-    production persistence orchestration is safe.
+    This function intentionally does not persist the returned dataset.
+    Step 13G composes this validated handoff with the reviewed lineage
+    allocator and append writer without changing either boundary's semantics.
     """
 
     if not datums:
@@ -373,4 +380,67 @@ def build_canonical_market_ingestion_handoff(
     return CanonicalMarketIngestionHandoff(
         dataset=dataset,
         lineage=lineage,
+    )
+
+@dataclass(frozen=True, slots=True)
+class EcbDfrCanonicalPersistenceResult:
+    """Successful ECB DFR ingestion through canonical append persistence."""
+
+    raw_ingestion: EcbDfrRawIngestionResult
+    allocated_ids: tuple[AllocatedLineageIds, ...]
+    handoff: CanonicalMarketIngestionHandoff
+    persistence_status: MarketObservationAppendStatus
+
+
+def ingest_ecb_dfr_to_canonical_persistence(
+    client: httpx.Client,
+    catalog_entry: MarketSeriesCatalogEntry,
+    raw_store: ImmutableRawArtifactStore,
+    engine: Engine,
+    *,
+    last_n_observations: int = 3,
+    storage_token: UUID | None = None,
+) -> EcbDfrCanonicalPersistenceResult:
+    """Run the reviewed ECB DFR ingestion boundaries in canonical order.
+
+    This function is deliberately a composition layer only:
+
+    retrieve -> immutable raw landing -> normalize -> allocate lineage IDs
+    -> canonical handoff -> controlled append persistence
+
+    It does not introduce a transaction spanning those boundaries and does
+    not retry failed work. Sequence values consumed before a later failure
+    remain consumed under the Step 13F allocation contract.
+    """
+
+    raw_ingestion = retrieve_land_normalize_ecb_dfr(
+        client,
+        catalog_entry,
+        raw_store,
+        last_n_observations=last_n_observations,
+        storage_token=storage_token,
+    )
+
+    allocated_ids = allocate_market_lineage_ids(
+        engine,
+        len(raw_ingestion.datums),
+    )
+
+    handoff = build_canonical_market_ingestion_handoff(
+        catalog_entry,
+        raw_ingestion.raw_landing.artifact,
+        raw_ingestion.datums,
+        allocated_ids,
+    )
+
+    persistence_status = persist_market_observation_batch(
+        engine,
+        handoff.dataset,
+    )
+
+    return EcbDfrCanonicalPersistenceResult(
+        raw_ingestion=raw_ingestion,
+        allocated_ids=allocated_ids,
+        handoff=handoff,
+        persistence_status=persistence_status,
     )
