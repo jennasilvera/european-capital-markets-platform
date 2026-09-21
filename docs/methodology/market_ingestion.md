@@ -375,6 +375,60 @@ Safe append persistence against an already-existing canonical market-series
 subject requires its own reviewed contract and must preserve the current
 atomicity and lineage guarantees.
 
+
+### Step 13E append persistence contract
+
+Recurring canonical market ingestion persists lineage against an already-existing
+controlled market-series subject. The append operation does not recreate or
+update the `market_series` row or its type-specific definition.
+
+The supplied append dataset still carries that market-series record and exactly
+one matching definition so the normal `CanonicalDataset` validation boundary
+remains authoritative before database work begins.
+
+Inside one database transaction the append writer:
+
+1. locks the existing `market_series` row;
+2. requires the persisted series identity and type-specific definition to match
+   the validated handoff exactly;
+3. classifies the supplied `SRC`, `EVD`, and `OBS` identifiers as either wholly
+   absent or wholly present;
+4. inserts source, evidence, observations, and their lineage junctions when all
+   supplied lineage identifiers are absent;
+5. treats a wholly present and exactly matching canonical-ID batch as an
+   explicit `ALREADY_PERSISTED` replay;
+6. rejects partial canonical-ID presence or any persisted-content mismatch;
+7. forces deferred relational constraints before transaction completion.
+
+Idempotency is therefore canonical-ID replay idempotency. It is not economic-key
+deduplication.
+
+In particular, the tuple:
+
+`(subject_type, subject_id, field_name, as_of_date)`
+
+is not a canonical uniqueness key. A later retrieval with newly allocated
+canonical lineage IDs remains a new append even when it reports the same
+market-series/date/value combination. This preserves source conflicts,
+corrections, repeated retrieval provenance, and historical reproducibility.
+
+The append path deliberately does not use:
+
+- `ON CONFLICT`;
+- upsert behavior;
+- conflict-ignore behavior;
+- destructive updates;
+- semantic same-series/date deduplication;
+- database-side canonical identifier allocation.
+
+The existing `persist_canonical_dataset` operation remains unchanged and
+insert-oriented for complete canonical logical units.
+
+The Step 13E writer also does not broaden the current domain boundary for
+calculated observations that depend on observations outside the supplied
+validated dataset. Such cross-batch calculation-lineage requirements remain a
+separate reviewed design problem if needed.
+
 ## Remaining Deliberately Deferred
 
 The following remain separate reviewed increments:
@@ -387,8 +441,8 @@ The following remain separate reviewed increments:
 - ingestion-run audit persistence;
 - exception/quarantine persistence;
 - canonical identifier allocation;
-- idempotency/revision policy for repeated observations;
-- canonical persistence orchestration;
+- broader correction/retraction workflows beyond canonical-ID replay;
+- end-to-end canonical persistence orchestration;
 - additional provider adapters.
 
 Live requests may be used as explicit local source-review probes, but normal
