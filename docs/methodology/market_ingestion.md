@@ -325,6 +325,56 @@ data is not the canonical ingestion workflow. Any workflow intended to feed
 canonical persistence must pass through the raw-landing orchestration boundary
 first.
 
+## Canonical Market-Ingestion Handoff
+
+Step 13D adds the provider-neutral transformation from a successfully landed
+raw retrieval and normalized datums into a validated canonical dataset.
+
+The handoff sequence is:
+
+```text
+landed RawRetrievalArtifact
++ normalized market datums
++ externally allocated SRC / EVD / OBS identifiers
+-> build pending source / evidence / observation lineage
+-> assemble controlled market-series subject and definition
+-> validate CanonicalDataset
+```
+
+One raw retrieval maps to one canonical `SourceRecord`. All normalized datums
+from that retrieval therefore share one externally allocated `source_id`.
+Each datum receives its own externally allocated evidence and observation IDs.
+
+The handoff reuses `build_pending_market_lineage`; it does not duplicate the
+source/evidence/observation governance rules and does not promote observations
+to verified state.
+
+The selected catalog entry contributes exactly one canonical market-series
+record and its matching type-specific definition. The resulting
+`CanonicalDataset` is validated using the existing domain validator before it
+is returned.
+
+### Persistence remains a separate boundary
+
+Step 13D deliberately stops before database persistence.
+
+The current `persist_canonical_dataset` writer is insert-oriented and expects
+the concrete observation subject to be present in the dataset. Reusing that
+writer for recurring observations of an already-persisted market series would
+attempt to insert the same market-series subject and definition again.
+
+Accordingly, Step 13D does not:
+
+- allocate canonical identifiers;
+- define repeated-observation idempotency or revision semantics;
+- introduce a second persistence writer;
+- use conflict-ignore or upsert behavior;
+- persist the handoff automatically.
+
+Safe append persistence against an already-existing canonical market-series
+subject requires its own reviewed contract and must preserve the current
+atomicity and lineage guarantees.
+
 ## Remaining Deliberately Deferred
 
 The following remain separate reviewed increments:
