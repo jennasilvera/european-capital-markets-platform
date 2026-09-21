@@ -481,6 +481,65 @@ Step 13F does not:
 - orchestrate retrieval through canonical persistence;
 - add scheduler, retry, quarantine, or run-state persistence.
 
+## Step 13G end-to-end canonical persistence orchestration
+
+Step 13G composes the already-reviewed ECB Deposit Facility Rate ingestion
+boundaries into one successful ingestion-to-persistence path:
+
+```text
+retrieve
+-> land immutable raw bytes
+-> normalize
+-> allocate SRC / EVD / OBS identifiers
+-> build and validate canonical handoff
+-> controlled market-observation append persistence
+```
+
+The orchestration is deliberately a composition layer. It does not replace or
+weaken any boundary owned by Steps 13C through 13F.
+
+A successful orchestration result retains:
+
+- the retrieval and immutable raw-landing result;
+- the allocated lineage identifiers;
+- the validated canonical handoff;
+- the explicit append-persistence status.
+
+There is no transaction spanning the complete workflow. Raw landing is a
+filesystem durability boundary, canonical identifier allocation retains its
+PostgreSQL sequence semantics, and append persistence retains its own atomic
+database transaction and canonical-ID replay rules.
+
+The orchestration performs no automatic retries. Exceptions from retrieval,
+normalization, allocation, handoff construction, or persistence propagate to
+the caller.
+
+Failure ordering remains intentional:
+
+- provider parsing or normalization cannot occur before immutable raw landing;
+- a failure before allocation consumes no canonical lineage identifiers;
+- a failure after allocation may leave unused sequence values, which are valid
+  gaps under the Step 13F contract;
+- a persistence failure does not trigger an implicit second allocation,
+  retrieval, or append attempt.
+
+Calling the full orchestration again is a new retrieval event and may allocate
+new canonical lineage identifiers. Durable same-attempt retry recovery requires
+retained allocation/run context and remains outside this increment.
+
+Step 13G does not add:
+
+- retry or backoff policy;
+- rate-limit handling;
+- scheduler behavior;
+- provider credential or entitlement management;
+- staged-data persistence;
+- ingestion-run audit persistence;
+- crash-recovery state;
+- exception or quarantine persistence;
+- broader correction or retraction workflows;
+- additional provider adapters.
+
 ## Remaining Deliberately Deferred
 
 The following remain separate reviewed increments:
@@ -493,7 +552,6 @@ The following remain separate reviewed increments:
 - ingestion-run audit persistence;
 - exception/quarantine persistence;
 - broader correction/retraction workflows beyond canonical-ID replay;
-- end-to-end canonical persistence orchestration;
 - additional provider adapters.
 
 Live requests may be used as explicit local source-review probes, but normal
