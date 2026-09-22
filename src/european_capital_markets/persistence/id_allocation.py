@@ -30,28 +30,40 @@ def allocate_market_lineage_ids(
     reuse it for that same logical ingestion attempt.
     """
 
+    with engine.begin() as connection:
+        return _allocate_market_lineage_ids(
+            connection,
+            datum_count,
+        )
+
+
+def _allocate_market_lineage_ids(
+    connection: Connection,
+    datum_count: int,
+) -> tuple[AllocatedLineageIds, ...]:
+    """Allocate lineage IDs within a caller-owned PostgreSQL transaction."""
+
     _validate_datum_count(
         datum_count
     )
 
-    with engine.begin() as connection:
-        source_sequence = _allocate_sequence_values(
-            connection,
-            EntityType.SOURCE,
-            1,
-        )[0]
+    source_sequence = _allocate_sequence_values(
+        connection,
+        EntityType.SOURCE,
+        1,
+    )[0]
 
-        evidence_sequences = _allocate_sequence_values(
-            connection,
-            EntityType.EVIDENCE,
-            datum_count,
-        )
+    evidence_sequences = _allocate_sequence_values(
+        connection,
+        EntityType.EVIDENCE,
+        datum_count,
+    )
 
-        observation_sequences = _allocate_sequence_values(
-            connection,
-            EntityType.OBSERVATION,
-            datum_count,
-        )
+    observation_sequences = _allocate_sequence_values(
+        connection,
+        EntityType.OBSERVATION,
+        datum_count,
+    )
 
     source_id = format_identifier(
         EntityType.SOURCE,

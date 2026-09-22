@@ -558,7 +558,7 @@ def test_migration_seeds_above_existing_canonical_ids(
 
         assert (
             _current_revision(engine)
-            == "0003_lineage_id_sequences"
+            == "0004_ingestion_run_state"
         )
 
         allocated = allocate_market_lineage_ids(
@@ -621,7 +621,7 @@ def test_downgrade_refuses_unpersisted_allocations(
 
         assert (
             _current_revision(engine)
-            == "0003_lineage_id_sequences"
+            == "0004_ingestion_run_state"
         )
     finally:
         _reseed_sequences_to_persisted_state(
