@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC
@@ -30,6 +31,12 @@ _SUFFIX_RE = re.compile(
 
 _ARCHIVE_COMPONENT_RE = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}"
+)
+
+_ARCHIVE_FILENAME_RE = re.compile(
+    r"\d{8}T\d{6}\.\d{6}Z_"
+    r"([0-9a-f]{32})"
+    r"\.[a-z0-9]{1,10}"
 )
 
 
@@ -153,12 +160,66 @@ def _file_create_flags() -> int:
     )
 
 
+def _file_read_flags() -> int:
+    if not hasattr(
+        os,
+        "O_NOFOLLOW",
+    ):
+        raise RuntimeError(
+            "Immutable raw recovery requires "
+            "os.O_NOFOLLOW support."
+        )
+
+    return (
+        os.O_RDONLY
+        | os.O_NOFOLLOW
+    )
+
+
 def _fsync_directory_fd(
     directory_fd: int,
 ) -> None:
     os.fsync(
         directory_fd
     )
+
+
+def _open_existing_archive_directory(
+    root: Path,
+    components: tuple[str, ...],
+) -> int:
+    """Open an existing archive path without creating or following links."""
+
+    flags = _directory_open_flags()
+
+    current_fd = os.open(
+        root,
+        flags,
+    )
+
+    try:
+        for component in components:
+            next_fd = os.open(
+                component,
+                flags,
+                dir_fd=current_fd,
+            )
+
+            os.close(
+                current_fd
+            )
+
+            current_fd = next_fd
+
+        result_fd = current_fd
+        current_fd = -1
+
+        return result_fd
+    finally:
+        if current_fd >= 0:
+            os.close(
+                current_fd
+            )
 
 
 def _open_archive_directory(
@@ -265,6 +326,226 @@ class ImmutableRawArtifactStore:
             os.close(
                 root_fd
             )
+
+    def load_verified_content(
+        self,
+        artifact: RawRetrievalArtifact,
+        *,
+        storage_token: UUID,
+    ) -> bytes:
+        """Reload one immutable raw artifact and verify its retained identity."""
+
+        if not isinstance(
+            artifact,
+            RawRetrievalArtifact,
+        ):
+            raise TypeError(
+                "artifact must be RawRetrievalArtifact."
+            )
+
+        if not isinstance(
+            storage_token,
+            UUID,
+        ):
+            raise TypeError(
+                "storage_token must be a UUID."
+            )
+
+        archived_location = (
+            artifact.archived_location
+        )
+
+        raw_parts = tuple(
+            archived_location.split("/")
+        )
+
+        if (
+            archived_location.startswith("/")
+            or any(
+                part in {"", ".", ".."}
+                or _ARCHIVE_COMPONENT_RE.fullmatch(
+                    part
+                )
+                is None
+                for part in raw_parts
+            )
+        ):
+            raise ValueError(
+                "Raw artifact archived_location contains "
+                "an unsafe path component."
+            )
+
+        prefix_parts = tuple(
+            self.archive_location_prefix.parts
+        )
+
+        if (
+            len(raw_parts) <= len(prefix_parts)
+            or raw_parts[:len(prefix_parts)]
+            != prefix_parts
+        ):
+            raise ValueError(
+                "Raw artifact archived_location does not "
+                "belong to this raw store."
+            )
+
+        storage_parts = raw_parts[
+            len(prefix_parts):
+        ]
+
+        if len(storage_parts) != 6:
+            raise ValueError(
+                "Raw artifact archived_location does not match "
+                "the immutable landing layout."
+            )
+
+        (
+            namespace,
+            market_series_id,
+            year,
+            month,
+            day,
+            final_name,
+        ) = storage_parts
+
+        _validate_namespace(
+            namespace
+        )
+
+        if market_series_id != artifact.market_series_id:
+            raise ValueError(
+                "Raw artifact archived_location market_series_id "
+                "does not match artifact metadata."
+            )
+
+        retrieved_utc = (
+            artifact.retrieved_at.astimezone(
+                UTC
+            )
+        )
+
+        expected_date_parts = (
+            retrieved_utc.strftime(
+                "%Y"
+            ),
+            retrieved_utc.strftime(
+                "%m"
+            ),
+            retrieved_utc.strftime(
+                "%d"
+            ),
+        )
+
+        if (
+            year,
+            month,
+            day,
+        ) != expected_date_parts:
+            raise ValueError(
+                "Raw artifact archived_location date does not "
+                "match artifact retrieved_at."
+            )
+
+        filename_match = (
+            _ARCHIVE_FILENAME_RE.fullmatch(
+                final_name
+            )
+        )
+
+        if filename_match is None:
+            raise ValueError(
+                "Raw artifact filename does not match "
+                "the immutable landing format."
+            )
+
+        expected_timestamp = (
+            retrieved_utc.strftime(
+                "%Y%m%dT%H%M%S.%fZ"
+            )
+        )
+
+        if not final_name.startswith(
+            f"{expected_timestamp}_"
+        ):
+            raise ValueError(
+                "Raw artifact filename timestamp does not "
+                "match artifact retrieved_at."
+            )
+
+        if (
+            filename_match.group(1)
+            != storage_token.hex
+        ):
+            raise ValueError(
+                "Raw artifact storage_token does not "
+                "match archived_location."
+            )
+
+        directory_fd = (
+            _open_existing_archive_directory(
+                self.root,
+                storage_parts[:-1],
+            )
+        )
+
+        try:
+            file_fd = os.open(
+                final_name,
+                _file_read_flags(),
+                dir_fd=directory_fd,
+            )
+
+            try:
+                file_stat = os.fstat(
+                    file_fd
+                )
+
+                if not stat.S_ISREG(
+                    file_stat.st_mode
+                ):
+                    raise ValueError(
+                        "Raw artifact target must be "
+                        "a regular file."
+                    )
+
+                if (
+                    file_stat.st_size
+                    != artifact.byte_length
+                ):
+                    raise ValueError(
+                        "Raw artifact byte length does "
+                        "not match metadata."
+                    )
+
+                handle = os.fdopen(
+                    file_fd,
+                    "rb",
+                    closefd=True,
+                )
+
+                file_fd = -1
+
+                with handle:
+                    content = handle.read(
+                        artifact.byte_length
+                        + 1
+                    )
+            finally:
+                if file_fd >= 0:
+                    os.close(
+                        file_fd
+                    )
+        finally:
+            os.close(
+                directory_fd
+            )
+
+        validate_raw_artifact_content(
+            artifact,
+            content,
+        )
+
+        return content
 
     def land_http_retrieval(
         self,
@@ -476,13 +757,9 @@ class ImmutableRawArtifactStore:
             media_type=retrieval.media_type,
         )
 
-        landed_content = (
-            filesystem_path.read_bytes()
-        )
-
-        validate_raw_artifact_content(
+        self.load_verified_content(
             artifact,
-            landed_content,
+            storage_token=storage_token,
         )
 
         return RawArtifactLanding(
