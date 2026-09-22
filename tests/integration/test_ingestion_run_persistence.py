@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
+from threading import Barrier
 from uuid import UUID, uuid4
 
 import pytest
@@ -21,7 +23,10 @@ from european_capital_markets.ingestion.contracts import (
     RetrievalSource,
 )
 from european_capital_markets.ingestion.raw_storage import RawArtifactLanding
-from european_capital_markets.ingestion.run_state import IngestionRunCheckpoint
+from european_capital_markets.ingestion.run_state import (
+    IngestionRunCheckpoint,
+    MarketIngestionRun,
+)
 from european_capital_markets.persistence.ingestion_runs import (
     IngestionRunConflictError,
     IngestionRunStateError,
@@ -186,13 +191,29 @@ def _cleanup(
     with engine.begin() as connection:
         connection.execute(
             sa.text(
-                "DELETE FROM market_ingestion_run_lineage"
-            )
+                """
+                DELETE FROM market_ingestion_run_lineage
+                WHERE run_id IN (
+                    SELECT run_id
+                    FROM market_ingestion_runs
+                    WHERE market_series_id = :market_series_id
+                )
+                """
+            ),
+            {
+                "market_series_id": MARKET_SERIES_ID,
+            },
         )
         connection.execute(
             sa.text(
-                "DELETE FROM market_ingestion_runs"
-            )
+                """
+                DELETE FROM market_ingestion_runs
+                WHERE market_series_id = :market_series_id
+                """
+            ),
+            {
+                "market_series_id": MARKET_SERIES_ID,
+            },
         )
         connection.execute(
             sa.text(
@@ -499,6 +520,77 @@ def test_allocation_before_raw_landing_is_rejected(
             run_id=run_id,
             datums=_datums(),
         )
+
+
+def test_concurrent_create_run_converges_on_one_durable_identity(
+    engine: Engine,
+) -> None:
+    run_id = uuid4()
+    worker_count = 8
+    start_barrier = Barrier(
+        worker_count
+    )
+
+    def create_run() -> MarketIngestionRun:
+        start_barrier.wait(
+            timeout=10
+        )
+
+        return create_market_ingestion_run(
+            engine,
+            run_id=run_id,
+            market_series_id=MARKET_SERIES_ID,
+        )
+
+    with ThreadPoolExecutor(
+        max_workers=worker_count
+    ) as executor:
+        futures = [
+            executor.submit(
+                create_run
+            )
+            for _ in range(worker_count)
+        ]
+
+        results = [
+            future.result(
+                timeout=20
+            )
+            for future in futures
+        ]
+
+    assert all(
+        result.run_id == run_id
+        for result in results
+    )
+
+    assert all(
+        result.market_series_id
+        == MARKET_SERIES_ID
+        for result in results
+    )
+
+    assert all(
+        result.checkpoint
+        is IngestionRunCheckpoint.STARTED
+        for result in results
+    )
+
+    with engine.connect() as connection:
+        durable_count = connection.execute(
+            sa.text(
+                """
+                SELECT count(*)
+                FROM market_ingestion_runs
+                WHERE run_id = :run_id
+                """
+            ),
+            {
+                "run_id": run_id,
+            },
+        ).scalar_one()
+
+    assert durable_count == 1
 
 
 def test_create_run_replay_requires_same_market_series(
