@@ -1,5 +1,6 @@
 """Tests for immutable raw-artifact filesystem landing."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from uuid import UUID
@@ -424,3 +425,580 @@ def test_filename_timestamp_is_normalized_to_utc(
         landing.artifact.retrieved_at
         == retrieval.retrieved_at
     )
+
+
+def test_load_verified_content_returns_exact_landed_bytes(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    content = store.load_verified_content(
+        landing.artifact,
+        storage_token=landing.storage_token,
+    )
+
+    assert content == b"raw-provider-bytes"
+
+
+def test_load_verified_content_rejects_different_storage_token(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="storage_token",
+    ):
+        store.load_verified_content(
+            landing.artifact,
+            storage_token=_TOKEN_2,
+        )
+
+
+def test_load_verified_content_rejects_changed_byte_length_metadata(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        byte_length=(
+            landing.artifact.byte_length
+            + 1
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="byte length",
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_changed_sha256_metadata(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        content_sha256=(
+            "0" * 64
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="SHA-256",
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_detects_modified_file_bytes(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    landing.filesystem_path.write_bytes(
+        b"x" * landing.artifact.byte_length
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="SHA-256",
+    ):
+        store.load_verified_content(
+            landing.artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_missing_artifact(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    landing.filesystem_path.unlink()
+
+    with pytest.raises(
+        FileNotFoundError
+    ):
+        store.load_verified_content(
+            landing.artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_absolute_archived_location(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        archived_location=(
+            "/"
+            + landing.artifact.archived_location
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="unsafe path component",
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_parent_path_component(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        archived_location=(
+            "data/raw/../"
+            + landing.filesystem_path.name
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="unsafe path component",
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_wrong_archive_prefix(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        archived_location=(
+            landing.artifact.archived_location.replace(
+                "data/raw/",
+                "other/raw/",
+                1,
+            )
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="does not belong",
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_intermediate_symlink(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    provider_directory = (
+        store.root
+        / "test-provider"
+    )
+
+    outside = (
+        tmp_path
+        / "outside"
+    )
+
+    provider_directory.rename(
+        outside
+    )
+
+    provider_directory.symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(
+        OSError
+    ):
+        store.load_verified_content(
+            landing.artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_final_symlink(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    outside = (
+        tmp_path
+        / "outside.csv"
+    )
+
+    outside.write_bytes(
+        landing.filesystem_path.read_bytes()
+    )
+
+    landing.filesystem_path.unlink()
+
+    landing.filesystem_path.symlink_to(
+        outside
+    )
+
+    with pytest.raises(
+        OSError
+    ):
+        store.load_verified_content(
+            landing.artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_non_regular_target(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    landing.filesystem_path.unlink()
+
+    landing.filesystem_path.mkdir()
+
+    with pytest.raises(
+        ValueError,
+        match="regular file",
+    ):
+        store.load_verified_content(
+            landing.artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_series_path_mismatch(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        archived_location=(
+            landing.artifact.archived_location.replace(
+                "MKS000000001",
+                "MKS000000002",
+                1,
+            )
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="market_series_id",
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_date_path_mismatch(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        archived_location=(
+            landing.artifact.archived_location.replace(
+                "/2026/09/20/",
+                "/2026/09/19/",
+                1,
+            )
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="retrieved_at",
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_filename_timestamp_mismatch(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        archived_location=(
+            landing.artifact.archived_location.replace(
+                "20260920T034512.123456Z_",
+                "20260920T034513.123456Z_",
+                1,
+            )
+        ),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="retrieved_at",
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_rejects_changed_file_length(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    landing.filesystem_path.write_bytes(
+        b"short"
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="byte length",
+    ):
+        store.load_verified_content(
+            landing.artifact,
+            storage_token=_TOKEN_1,
+        )
+
+
+def test_load_verified_content_missing_directory_does_not_create_it(
+    tmp_path: Path,
+) -> None:
+    store = _store(
+        tmp_path
+    )
+
+    landing = store.land_http_retrieval(
+        market_series_id="MKS000000001",
+        source=_source(),
+        retrieval=_retrieval(),
+        namespace="test-provider",
+        suffix=".csv",
+        storage_token=_TOKEN_1,
+    )
+
+    changed_artifact = replace(
+        landing.artifact,
+        archived_location=(
+            landing.artifact.archived_location.replace(
+                "test-provider/",
+                "missing-provider/",
+                1,
+            )
+        ),
+    )
+
+    missing_directory = (
+        store.root
+        / "missing-provider"
+    )
+
+    with pytest.raises(
+        FileNotFoundError
+    ):
+        store.load_verified_content(
+            changed_artifact,
+            storage_token=_TOKEN_1,
+        )
+
+    assert not missing_directory.exists()
