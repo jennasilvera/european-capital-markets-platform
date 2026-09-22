@@ -138,6 +138,24 @@ def _ensure_market_series(
             connection.execute(
                 sa.text(
                     """
+                    INSERT INTO observation_subjects (
+                        subject_type,
+                        subject_id
+                    )
+                    VALUES (
+                        'MARKET_SERIES',
+                        :market_series_id
+                    )
+                    """
+                ),
+                {
+                    "market_series_id": MARKET_SERIES_ID,
+                },
+            )
+
+            connection.execute(
+                sa.text(
+                    """
                     INSERT INTO policy_rate_definitions (
                         market_series_id,
                         authority,
