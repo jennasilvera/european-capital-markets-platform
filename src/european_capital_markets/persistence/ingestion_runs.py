@@ -56,23 +56,6 @@ def create_market_ingestion_run(
     )
 
     with engine.begin() as connection:
-        existing = _select_run(
-            connection,
-            run_id,
-            for_update=True,
-        )
-
-        if existing is not None:
-            if existing["market_series_id"] != market_series_id:
-                raise IngestionRunConflictError(
-                    "run_id is already bound to a different market series."
-                )
-
-            return _row_to_run(
-                connection,
-                existing,
-            )
-
         connection.execute(
             sa.text(
                 """
@@ -86,6 +69,7 @@ def create_market_ingestion_run(
                     :market_series_id,
                     'STARTED'
                 )
+                ON CONFLICT (run_id) DO NOTHING
                 """
             ),
             {
@@ -94,15 +78,20 @@ def create_market_ingestion_run(
             },
         )
 
-        created = _require_run_row(
+        current = _require_run_row(
             connection,
             run_id,
             for_update=True,
         )
 
+        if current["market_series_id"] != market_series_id:
+            raise IngestionRunConflictError(
+                "run_id is already bound to a different market series."
+            )
+
         return _row_to_run(
             connection,
-            created,
+            current,
         )
 
 
