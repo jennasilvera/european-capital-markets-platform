@@ -38,11 +38,21 @@ from european_capital_markets.ingestion.raw_storage import (
     ImmutableRawArtifactStore,
     RawArtifactLanding,
 )
+from european_capital_markets.ingestion.run_state import (
+    IngestionRunCheckpoint,
+    MarketIngestionRun,
+)
 from european_capital_markets.ingestion.transport import (
     HttpRetrievedPayload,
 )
 from european_capital_markets.persistence.id_allocation import (
     allocate_market_lineage_ids,
+)
+from european_capital_markets.persistence.ingestion_runs import (
+    allocate_market_ingestion_run_lineage,
+    create_market_ingestion_run,
+    mark_market_ingestion_run_persisted,
+    record_market_ingestion_raw_landing,
 )
 from european_capital_markets.persistence.writer import (
     MarketObservationAppendStatus,
@@ -62,6 +72,59 @@ class EcbDfrRawIngestionResult:
     datums: tuple[NormalizedMarketDatum, ...]
 
 
+def _retrieve_land_ecb_dfr(
+    client: httpx.Client,
+    catalog_entry: MarketSeriesCatalogEntry,
+    raw_store: ImmutableRawArtifactStore,
+    *,
+    provider_series_id: str,
+    last_n_observations: int,
+    storage_token: UUID | None,
+) -> tuple[HttpRetrievedPayload, RawArtifactLanding]:
+    """Retrieve and durably land ECB DFR bytes without normalizing them."""
+
+    retrieval = fetch_ecb_csv(
+        client,
+        provider_series_id,
+        last_n_observations=last_n_observations,
+    )
+
+    source_mapping = catalog_entry.source_mapping
+    redirect_note = None
+
+    if retrieval.request_url != retrieval.response_url:
+        redirect_note = (
+            "Requested URL before redirects: "
+            f"{retrieval.request_url}"
+        )
+
+    source = RetrievalSource(
+        publisher=source_mapping.publisher,
+        source_tier=source_mapping.source_tier,
+        source_type=source_mapping.source_type,
+        title=(
+            "ECB Data Portal: "
+            f"{catalog_entry.definition.rate_name}"
+        ),
+        url=retrieval.response_url,
+        retrieval_identifier=provider_series_id,
+        notes=redirect_note,
+    )
+
+    raw_landing = raw_store.land_http_retrieval(
+        market_series_id=(
+            catalog_entry.market_series.market_series_id
+        ),
+        source=source,
+        retrieval=retrieval,
+        namespace="ecb",
+        suffix=".csv",
+        storage_token=storage_token,
+    )
+
+    return retrieval, raw_landing
+
+
 def retrieve_land_normalize_ecb_dfr(
     client: httpx.Client,
     catalog_entry: MarketSeriesCatalogEntry,
@@ -77,67 +140,17 @@ def retrieve_land_normalize_ecb_dfr(
     the failure.
     """
 
-    provider_series_id = (
-        validate_ecb_dfr_catalog_entry(
-            catalog_entry
-        )
+    provider_series_id = validate_ecb_dfr_catalog_entry(
+        catalog_entry
     )
 
-    retrieval = fetch_ecb_csv(
+    retrieval, raw_landing = _retrieve_land_ecb_dfr(
         client,
-        provider_series_id,
-        last_n_observations=(
-            last_n_observations
-        ),
-    )
-
-    source_mapping = (
-        catalog_entry.source_mapping
-    )
-
-    redirect_note = None
-
-    if (
-        retrieval.request_url
-        != retrieval.response_url
-    ):
-        redirect_note = (
-            "Requested URL before redirects: "
-            f"{retrieval.request_url}"
-        )
-
-    source = RetrievalSource(
-        publisher=(
-            source_mapping.publisher
-        ),
-        source_tier=(
-            source_mapping.source_tier
-        ),
-        source_type=(
-            source_mapping.source_type
-        ),
-        title=(
-            "ECB Data Portal: "
-            f"{catalog_entry.definition.rate_name}"
-        ),
-        url=retrieval.response_url,
-        retrieval_identifier=(
-            provider_series_id
-        ),
-        notes=redirect_note,
-    )
-
-    raw_landing = (
-        raw_store.land_http_retrieval(
-            market_series_id=(
-                catalog_entry.market_series.market_series_id
-            ),
-            source=source,
-            retrieval=retrieval,
-            namespace="ecb",
-            suffix=".csv",
-            storage_token=storage_token,
-        )
+        catalog_entry,
+        raw_store,
+        provider_series_id=provider_series_id,
+        last_n_observations=last_n_observations,
+        storage_token=storage_token,
     )
 
     # Do not move this parse step above raw landing. The raw artifact is the
@@ -147,9 +160,7 @@ def retrieve_land_normalize_ecb_dfr(
         market_series_id=(
             catalog_entry.market_series.market_series_id
         ),
-        expected_provider_series_id=(
-            provider_series_id
-        ),
+        expected_provider_series_id=provider_series_id,
     )
 
     return EcbDfrRawIngestionResult(
@@ -157,6 +168,7 @@ def retrieve_land_normalize_ecb_dfr(
         raw_landing=raw_landing,
         datums=datums,
     )
+
 
 @dataclass(frozen=True, slots=True)
 class CanonicalMarketIngestionHandoff:
@@ -442,5 +454,140 @@ def ingest_ecb_dfr_to_canonical_persistence(
         raw_ingestion=raw_ingestion,
         allocated_ids=allocated_ids,
         handoff=handoff,
+        persistence_status=persistence_status,
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class DurableEcbDfrCanonicalPersistenceResult:
+    """Outcome of one durable same-logical-attempt ECB DFR ingestion."""
+
+    run: MarketIngestionRun
+    persistence_status: MarketObservationAppendStatus | None
+
+
+def ingest_ecb_dfr_to_durable_canonical_persistence(
+    client: httpx.Client,
+    catalog_entry: MarketSeriesCatalogEntry,
+    raw_store: ImmutableRawArtifactStore,
+    engine: Engine,
+    *,
+    run_id: UUID,
+    last_n_observations: int = 3,
+    storage_token: UUID | None = None,
+) -> DurableEcbDfrCanonicalPersistenceResult:
+    """Execute or recover one durable ECB DFR ingestion run.
+
+    STARTED is the only checkpoint that may retrieve provider bytes.
+    RAW_LANDED and LINEAGE_ALLOCATED always reload and verify the retained
+    immutable raw artifact. Lineage allocation is durable and replay-safe:
+    a LINEAGE_ALLOCATED recovery recomputes the normalized batch fingerprint
+    and reuses the retained SRC/EVD/OBS identifiers only on an exact match.
+
+    Canonical persistence completes before the run is marked PERSISTED.
+    Therefore a crash after canonical commit but before the checkpoint update
+    safely replays the same canonical IDs and accepts ALREADY_PERSISTED.
+
+    last_n_observations and storage_token affect only an initial STARTED
+    retrieval. Recovery uses the retained raw artifact and storage token.
+    """
+
+    market_series_id = (
+        catalog_entry.market_series.market_series_id
+    )
+
+    run = create_market_ingestion_run(
+        engine,
+        run_id=run_id,
+        market_series_id=market_series_id,
+    )
+
+    if run.checkpoint is IngestionRunCheckpoint.PERSISTED:
+        return DurableEcbDfrCanonicalPersistenceResult(
+            run=run,
+            persistence_status=None,
+        )
+
+    if run.checkpoint is IngestionRunCheckpoint.STARTED:
+        provider_series_id = validate_ecb_dfr_catalog_entry(
+            catalog_entry
+        )
+
+        _retrieval, raw_landing = _retrieve_land_ecb_dfr(
+            client,
+            catalog_entry,
+            raw_store,
+            provider_series_id=provider_series_id,
+            last_n_observations=last_n_observations,
+            storage_token=storage_token,
+        )
+
+        run = record_market_ingestion_raw_landing(
+            engine,
+            run_id=run_id,
+            raw_landing=raw_landing,
+        )
+
+    if run.checkpoint not in {
+        IngestionRunCheckpoint.RAW_LANDED,
+        IngestionRunCheckpoint.LINEAGE_ALLOCATED,
+    }:
+        raise AssertionError(
+            "Durable ECB DFR ingestion reached an unsupported "
+            f"checkpoint: {run.checkpoint.value}."
+        )
+
+    if run.raw_artifact is None or run.storage_token is None:
+        raise AssertionError(
+            "Recoverable ingestion checkpoint is missing retained "
+            "raw-artifact state."
+        )
+
+    provider_series_id = (
+        run.raw_artifact.source.retrieval_identifier
+    )
+
+    if not provider_series_id:
+        raise ValueError(
+            "Retained ECB raw artifact is missing its "
+            "provider retrieval identifier."
+        )
+
+    raw_content = raw_store.load_verified_content(
+        run.raw_artifact,
+        storage_token=run.storage_token,
+    )
+
+    datums = parse_ecb_dfr_csv(
+        raw_content,
+        market_series_id=market_series_id,
+        expected_provider_series_id=provider_series_id,
+    )
+
+    allocated_ids = allocate_market_ingestion_run_lineage(
+        engine,
+        run_id=run_id,
+        datums=datums,
+    )
+
+    handoff = build_canonical_market_ingestion_handoff(
+        catalog_entry,
+        run.raw_artifact,
+        datums,
+        allocated_ids,
+    )
+
+    persistence_status = persist_market_observation_batch(
+        engine,
+        handoff.dataset,
+    )
+
+    persisted_run = mark_market_ingestion_run_persisted(
+        engine,
+        run_id=run_id,
+    )
+
+    return DurableEcbDfrCanonicalPersistenceResult(
+        run=persisted_run,
         persistence_status=persistence_status,
     )
