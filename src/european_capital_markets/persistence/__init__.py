@@ -1,5 +1,8 @@
 """Canonical PostgreSQL persistence adapters."""
 
+from european_capital_markets.persistence.analytics import (
+    calculate_rate_change_from_database,
+)
 from european_capital_markets.persistence.id_allocation import (
     allocate_market_lineage_ids,
 )
@@ -29,6 +32,7 @@ __all__ = [
     "MarketObservationAppendStatus",
     "allocate_market_ingestion_run_lineage",
     "allocate_market_lineage_ids",
+    "calculate_rate_change_from_database",
     "create_market_ingestion_run",
     "load_canonical_dataset",
     "load_market_ingestion_run",
