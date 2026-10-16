@@ -3,13 +3,15 @@
 ## Purpose
 
 This document freezes the provider-neutral boundary between the controlled
-market-series reference catalog and future live market-data retrieval.
+market-series reference catalog and controlled market-data retrieval.
 
 The ingestion layer must preserve source material and provenance before values
 are admitted to the canonical analytical model.
 
-This increment defines contracts only. It does not implement a live provider,
-network transport, credentials, scheduling, or recurring ingestion.
+Step 13A established the provider-neutral contracts. Steps 13B through 13H
+implement controlled ECB Deposit Facility Rate retrieval, immutable raw landing,
+canonical append persistence, and durable same-logical-attempt recovery.
+Credentials, scheduling, and automatic retry policy remain deferred.
 
 ## Architectural Flow
 
@@ -179,7 +181,9 @@ Future execution layers must keep these failures distinguishable:
 A failed or rejected ingestion attempt must not create a partially canonical
 dataset.
 
-Operational exception/audit persistence remains a later controlled increment.
+Durable operational run checkpoints are implemented by Step 13H below.
+Exception/quarantine persistence and broader operational audit facilities remain
+separate reviewed scope.
 
 ## Credentials and Secrets
 
@@ -540,6 +544,103 @@ Step 13G does not add:
 - broader correction or retraction workflows;
 - additional provider adapters.
 
+## Step 13H durable same-logical-attempt recovery
+
+Step 13H adds durable recovery state for one logical market-ingestion attempt.
+It closes the recovery gap identified by Steps 13F and 13G: a retry of the same
+logical attempt must retain its original raw evidence and reuse its prior
+lineage allocation rather than becoming a new retrieval event.
+
+The Step 13F and Step 13G scope statements above describe those increments.
+Their APIs and contracts remain unchanged. Recovery uses the separate
+`ingest_ecb_dfr_to_durable_canonical_persistence` entry point with a caller-supplied
+UUID `run_id`, bound permanently to one controlled market series.
+
+Migration `0004_ingestion_run_state` adds durable run and ordered lineage state.
+Its Alembic predecessor is `0003_lineage_id_sequences` (the migration file is
+named `0003_canonical_lineage_id_sequences.py`). Run IDs and filesystem storage
+tokens are operational identifiers; neither replaces canonical lineage IDs.
+
+### Checkpoints and replay
+
+| Checkpoint | Durable context | Execution or recovery behavior |
+| --- | --- | --- |
+| `STARTED` | Run ID and controlled market-series ID | Only this checkpoint may retrieve; land immutable bytes and commit raw context before parsing. |
+| `RAW_LANDED` | Raw provenance, archived locator, integrity metadata, and storage token | Verify and reparse retained bytes without retrieving again; allocate and retain lineage with the normalized fingerprint. |
+| `LINEAGE_ALLOCATED` | Ordered batch fingerprint, datum count, shared SRC, ordered EVD/OBS bundles | Reparse retained bytes and require an exact fingerprint match before reusing retained IDs and calling the append writer. |
+| `PERSISTED` | Completed run with retained raw/lineage state and persisted timestamp | Terminal canonical no-op; the durable orchestration returns no new persistence status. |
+
+The fingerprint binds the exact ordered normalized representation, including
+Decimal serialization, missingness, dates, units, currency, and evidence
+metadata. Changed content or ordering fails closed rather than allocating new
+IDs under an already-bound run.
+
+Recovery obtains the original provider identifier from retained
+`RetrievalSource.retrieval_identifier`. A changed current provider mapping does
+not redefine the historical retrieval. The canonical handoff and append writer
+still validate controlled economic identity; recovery does not waive them.
+Populated ingested values remain `PENDING`; explicit unavailable data retain
+`UNAVAILABLE`. Neither state confers analytical approval.
+
+### Verified raw reload
+
+`ImmutableRawArtifactStore.load_verified_content` checks archive-prefix and
+locator structure, market-series namespace, UTC retrieval date/timestamp,
+storage token, regular-file status, exact byte length, and SHA-256. Traversal
+uses trusted-root, descriptor-relative no-follow opens; intermediate and final
+symlinks are rejected. Missing, unsafe, or changed bytes fail closed.
+
+### Canonical commit before checkpoint update
+
+Canonical persistence and the final run checkpoint use separate transactions.
+If canonical rows commit while the run remains `LINEAGE_ALLOCATED`, recovery
+revalidates raw bytes and normalized content, reuses retained IDs, and receives
+`ALREADY_PERSISTED` from the exact canonical-ID append replay. Only after the
+writer succeeds does orchestration advance the run to `PERSISTED`. Writer
+failure does not mark the run persisted.
+
+This composition is covered by
+`tests/integration/test_durable_ingestion_recovery.py` using real PostgreSQL,
+real filesystem storage, and a synthetic provider response via mock transport.
+The test commits canonical rows, leaves the final checkpoint unadvanced, and
+recovers with provider retrieval unavailable. It asserts unchanged canonical
+row counts, retained IDs, replay status, and the durable terminal checkpoint.
+It models the committed crash state rather than killing an operating-system
+process or proving power-loss durability.
+
+### Dependency and failure coverage
+
+This documentation reconciliation changes no runtime dependency, schema, or API.
+The existing implementation's important boundaries are:
+
+| Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
+| --- | --- | --- | --- | --- | --- | --- |
+| ECB orchestration | Provider/parser | Land before parsing; preserve original retrieval identity | Malformed CSV or current mapping drift | Retain raw checkpoint; recover using original provider identity | Unit/composition | Mock transport and isolated persistence calls |
+| Raw recovery | Filesystem | Trusted locator and exact retained content | Symlink, unsafe locator, wrong token, length or digest | Reject reload | Filesystem tests | Real filesystem |
+| Run creation | PostgreSQL uniqueness/locking | Same run and series converge; different series conflict | Concurrent first creation | One durable run; identity mismatch fails closed | PostgreSQL integration | Real database |
+| Retained allocation | PostgreSQL and ordered fingerprint | Allocate once for exact normalized batch | Changed batch or replay mismatch | Reject drift; reuse exact IDs on matching replay | Unit and PostgreSQL integration | Real database for persistence |
+| Append writer | PostgreSQL identity/constraints | Exact canonical-ID replay only | Partial presence or changed content | Reject; no semantic deduplication or destructive update | PostgreSQL integration | Real database |
+| Durable orchestration | Raw store, run state, append writer | Canonical commit precedes final checkpoint | Commit succeeds before checkpoint update | Recover as `ALREADY_PERSISTED`, without duplicate rows | PostgreSQL composition | Real database/filesystem; synthetic transport |
+| Migration downgrade | Recoverable run state | Do not discard in-flight recovery context | `RAW_LANDED` or `LINEAGE_ALLOCATED` run exists | Refuse downgrade | PostgreSQL integration | Real database |
+
+### Remaining reliability boundaries
+
+There is no distributed transaction across raw publication and the database.
+A crash after filesystem publication but before the raw checkpoint commits can
+leave an unbound artifact and a `STARTED` run. This state cannot automatically
+recover that artifact; a later invocation may retrieve again. Raw evidence is
+not overwritten, but orphan discovery/reconciliation is outside Step 13H.
+
+Concurrent first run creation is tested, but this is not a worker lease or an
+exactly-once provider-retrieval guarantee. Concurrent orchestration callers can
+both observe `STARTED`; conflicting raw bindings fail closed. Callers must not
+assume distributed ownership. Automatic retries, scheduler behavior, worker
+leases, a `FAILED` checkpoint, and quarantine are not implemented.
+
+Missing or contradictory retained state is an error, not permission to retrieve
+again after `RAW_LANDED`. Parser/fingerprint compatibility across future code
+changes must be reviewed; replay drift is rejected rather than silently migrated.
+
 ## Remaining Deliberately Deferred
 
 The following remain separate reviewed increments:
@@ -549,7 +650,7 @@ The following remain separate reviewed increments:
 - provider credentials and entitlement mechanisms;
 - ingestion scheduling;
 - staged-data persistence;
-- ingestion-run audit persistence;
+- broader operational audit facilities beyond the implemented run checkpoints;
 - exception/quarantine persistence;
 - broader correction/retraction workflows beyond canonical-ID replay;
 - additional provider adapters.
