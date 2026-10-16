@@ -768,7 +768,7 @@ This keeps database correctness separate from local environment availability.
 | Controlled reference-series catalog | Implemented |
 | Concrete provider mappings | Implemented for initial Phase 1 coverage — ECB, Bundesbank, ICE Swap Rate, STOXX/VSTOXX, and ICE BofA EUR IG/HY credit |
 | Market-data ingestion | Architecture in progress — provider-neutral contract, ECB SDMX CSV transport/adapter, immutable raw landing, retrieve-land-normalize orchestration, validated canonical handoff, controlled append persistence, PostgreSQL-backed canonical lineage identifier allocation, ECB DFR end-to-end canonical persistence orchestration, durable run checkpoints, verified raw recovery, and crash-after-canonical-commit recovery implemented; automatic retry policy, scheduling, worker ownership, and additional providers deferred |
-| Market analytics | Phase 1 selection and calculation design documented; implementation pending |
+| Market analytics | Exact-date verified observation selection implemented; calculation design documented; derived metrics and database composition pending |
 | Financing models | Planned |
 | Client-facing outputs | Planned |
 
