@@ -1,6 +1,14 @@
 """Deterministic FX conversion of governed monetary observations."""
 
-from decimal import ROUND_HALF_EVEN, Decimal, localcontext
+from decimal import (
+    ROUND_HALF_EVEN,
+    Context,
+    Decimal,
+    DivisionByZero,
+    InvalidOperation,
+    Overflow,
+    localcontext,
+)
 from enum import StrEnum
 
 from european_capital_markets.domain.lineage import ObservationRecord
@@ -63,6 +71,8 @@ def calculate_fx_conversion(
 ) -> Decimal:
     """Calculate a canonical FX conversion at governed precision."""
 
+    if not amount.is_finite() or not rate.is_finite():
+        raise ValueError("FX amount and rate must be finite Decimal values.")
     if rate <= 0:
         raise ValueError("FX rate must be strictly positive.")
 
@@ -75,10 +85,18 @@ def calculate_fx_conversion(
     # Freeze calculation precision and rounding rather than inheriting
     # either setting from the caller's ambient Decimal context.
     # Presentation rounding remains a separate downstream concern.
-    with localcontext() as context:
-        context.prec = 38
-        context.rounding = ROUND_HALF_EVEN
-
+    with localcontext(
+        Context(
+            prec=38,
+            rounding=ROUND_HALF_EVEN,
+            Emin=-999999,
+            Emax=999999,
+            capitals=1,
+            clamp=0,
+            flags=[],
+            traps=[InvalidOperation, DivisionByZero, Overflow],
+        )
+    ):
         if direction is FXConversionDirection.MULTIPLY:
             return amount * rate
 

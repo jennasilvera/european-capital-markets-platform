@@ -176,3 +176,12 @@ A reviewer must be able to recover:
 
 This allows the analytical currency view to be reproduced without modifying
 the source economics.
+
+## Complete FX Calculation Context
+
+The calculation uses a fresh context, not a copy of caller state: precision 38,
+`ROUND_HALF_EVEN`, `Emin=-999999`, `Emax=999999`, and `clamp=0`. Invalid operation,
+division by zero, and overflow are trapped; inexact division is rounded under
+the governed precision rule. Flags start clear and remain local. Amount and
+rate must be finite. Caller precision, rounding, traps, exponent limits, and
+flags cannot alter the conversion or be modified by it.

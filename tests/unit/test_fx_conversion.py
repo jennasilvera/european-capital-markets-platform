@@ -471,3 +471,45 @@ def test_conversion_rejects_duplicate_fx_definitions() -> None:
                 _converted(),
             ),
         )
+
+
+def test_fx_calculation_does_not_inherit_traps_exponents_or_flags():
+    from decimal import Inexact, Rounded
+
+    with localcontext() as context:
+        context.prec = 1
+        context.Emax = 2
+        context.Emin = -2
+        context.traps[Inexact] = context.traps[Rounded] = True
+        context.clear_flags()
+        inverse = calculate_fx_conversion(
+            amount=Decimal("1"),
+            source_currency="GBP",
+            target_currency="EUR",
+            rate=Decimal("3"),
+            definition=_definition(),
+        )
+        direct = calculate_fx_conversion(
+            amount=Decimal("10000000000"),
+            source_currency="EUR",
+            target_currency="GBP",
+            rate=Decimal("3"),
+            definition=_definition(),
+        )
+        assert inverse == Decimal("0." + "3" * 38)
+        assert direct == Decimal("30000000000")
+        assert not any(context.flags.values())
+
+
+@pytest.mark.parametrize("field", ["amount", "rate"])
+@pytest.mark.parametrize("value", ["NaN", "sNaN", "Infinity", "-Infinity"])
+def test_fx_nonfinite_values_fail_explicitly(field, value):
+    arguments = {"amount": Decimal("1"), "rate": Decimal("3")}
+    arguments[field] = Decimal(value)
+    with pytest.raises(ValueError, match="finite"):
+        calculate_fx_conversion(
+            **arguments,
+            source_currency="EUR",
+            target_currency="GBP",
+            definition=_definition(),
+        )
