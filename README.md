@@ -17,8 +17,10 @@ conclusion was produced.
 >
 > Controlled reference-series catalog structure and the first reviewed
 > source/provider mappings are implemented.
-> Controlled ingestion, market analytics, financing models, dashboards,
-> and client-facing outputs follow as separately reviewed layers.
+> Controlled ECB Deposit Facility Rate ingestion through canonical append
+> persistence and durable same-logical-attempt recovery are implemented.
+> Market and transaction analytics, financing models, dashboards, and
+> client-facing outputs follow as separately reviewed layers.
 
 ---
 
@@ -465,6 +467,10 @@ Current schema history:
 0001_canonical_schema
         ↓
 0002_market_series_defs
+        ↓
+0003_lineage_id_sequences
+        ↓
+0004_ingestion_run_state
 ~~~
 
 ### Transactional writer
@@ -714,7 +720,11 @@ PostgreSQL integration tests cover:
 - canonical reconstruction;
 - market-series persistence;
 - lossless round trips;
-- downgrade and re-upgrade behavior.
+- downgrade and re-upgrade behavior;
+- canonical lineage sequence bounds, rollback gaps, and concurrent allocation;
+- exact canonical-ID append replay and conflicting/partial replay rejection;
+- durable run checkpoints, retained allocation, and concurrent run creation;
+- recovery after canonical commit before the persisted run checkpoint.
 
 CI provisions PostgreSQL independently and validates:
 
@@ -757,7 +767,7 @@ This keeps database correctness separate from local environment availability.
 | PostgreSQL lossless market round trip | Implemented |
 | Controlled reference-series catalog | Implemented |
 | Concrete provider mappings | Implemented for initial Phase 1 coverage — ECB, Bundesbank, ICE Swap Rate, STOXX/VSTOXX, and ICE BofA EUR IG/HY credit |
-| Market-data ingestion | Architecture in progress — provider-neutral contract, ECB SDMX CSV transport/adapter, immutable raw landing, retrieve-land-normalize orchestration, validated canonical handoff, controlled append persistence, PostgreSQL-backed canonical lineage identifier allocation, and ECB DFR end-to-end canonical persistence orchestration implemented; scheduling and additional provider orchestration pending |
+| Market-data ingestion | Architecture in progress — provider-neutral contract, ECB SDMX CSV transport/adapter, immutable raw landing, retrieve-land-normalize orchestration, validated canonical handoff, controlled append persistence, PostgreSQL-backed canonical lineage identifier allocation, ECB DFR end-to-end canonical persistence orchestration, durable run checkpoints, verified raw recovery, and crash-after-canonical-commit recovery implemented; automatic retry policy, scheduling, worker ownership, and additional providers deferred |
 | Market analytics | Planned |
 | Financing models | Planned |
 | Client-facing outputs | Planned |
@@ -806,9 +816,23 @@ immutable raw-artifact landing, retrieve-land-normalize orchestration,
 validated canonical lineage handoff, and controlled append persistence are
 implemented. PostgreSQL-backed canonical lineage allocation for `SRC`, `EVD`,
 and `OBS` and the ECB DFR end-to-end ingestion-to-persistence composition are
-also implemented. Scheduling, retries, operational run-state persistence,
+also implemented. Step 13H adds durable same-logical-attempt recovery through
+`STARTED -> RAW_LANDED -> LINEAGE_ALLOCATED -> PERSISTED`, verified reload of
+retained raw bytes, and fingerprint-bound reuse of retained lineage IDs.
+The Step 13G API remains available with its original new-retrieval semantics.
+
+The next architectural layer is **Market and Transaction Analytics**. Begin
+with a methodology and contract review covering observation eligibility,
+as-of selection, disagreement, missingness, calculation lineage, decimal
+precision, and historical reproducibility before implementing calculations.
+
+Automatic retries/backoff, rate-limit policy, scheduling, worker ownership,
+provider credentials/entitlements, exception/quarantine persistence,
 additional provider adapters, and broader correction/retraction workflows
-remain separate reviewed increments.
+remain separately reviewed scope. Step 13H does not introduce a transaction
+spanning filesystem raw publication and PostgreSQL. See the
+[controlled ingestion methodology](docs/methodology/market_ingestion.md)
+for checkpoint guarantees and residual failure boundaries.
 
 The catalog governs selection metadata such as:
 
