@@ -146,8 +146,10 @@ The first post-ingestion analytical layer is specified in
 It begins with exact-date observation selection and then rate/yield changes,
 with explicit verification, conflict, precision, and input-lineage rules.
 The pure exact-date selector and two-date rate/yield changes are implemented
-under `src/european_capital_markets/analytics/`. Database composition, broader
-market and transaction calculations, and durable analytical releases remain
-subsequent work.
+under `src/european_capital_markets/analytics/`. PostgreSQL snapshot composition
+is implemented by `calculate_rate_change_from_database` in the persistence
+package, using the existing canonical reader once per invocation. Broader market
+and transaction calculations and durable analytical releases remain subsequent
+work.
 Economic-date calculations over a supplied snapshot must not be presented as
 historical knowledge-time reconstruction.

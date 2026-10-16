@@ -3,8 +3,8 @@
 ## Status and decision
 
 This is the analytical design following Step 13H. The exact-date market
-selector and pure two-date rate/yield changes are implemented. Database
-composition and durable analytical releases remain subsequent increments.
+selector, pure two-date rate/yield changes, and PostgreSQL snapshot composition
+are implemented. Durable analytical releases remain a subsequent increment.
 Implementation status and executable contracts are recorded below. Canonical schema,
 ingestion contracts, and verification states remain unchanged.
 
@@ -167,7 +167,7 @@ The staged interfaces use frozen typed records:
 | --- | --- | --- |
 | Exact-date selector (implemented) | Validated dataset, series ID, field, date, policy version | Selection outcome including support and exclusion provenance; no I/O |
 | Two-date rate change (implemented) | Same dataset, two dates, compatible rate/yield series, fixed methodology version | Calculated Decimal or explicit blocked outcome; preserves both selections |
-| Database composition adapter, later increment | Engine plus analytical request | Acquire one full canonical dataset through the existing reader; invoke pure analytics |
+| PostgreSQL composition adapter (implemented) | Engine plus analytical request | Acquire one full canonical dataset through the existing reader; invoke pure analytics |
 
 Do not expose unvalidated constructors as proof of coherent dataset validation.
 The public function validates its input aggregate, or consumes an explicitly
@@ -256,8 +256,9 @@ is a separate integration seam; release persistence remains deferred.
 
 The following matrix defines acceptance coverage across the staged delivery.
 Selector/domain and pure calculation cases are now exercised by the
-implementation tests below. Database-adapter and durable replay rows remain
-future acceptance requirements; they are not claimed as implemented coverage.
+implementation tests below. Database-adapter rows are covered by real
+PostgreSQL composition tests. Durable analytical replay remains a future
+acceptance requirement, not implemented coverage.
 
 | Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -268,9 +269,9 @@ future acceptance requirements; they are not claimed as implemented coverage.
 | Result | Full candidate/evidence closure | Explain every material input and decision | Missing locator/source, candidate lost from diagnostics | Reject incomplete lineage | Composition | Real canonical bundle |
 | Calculation | Two successful selections | Both endpoints required, same series | One endpoint blocked, reversed/equal dates, cross-series mix | No numerical result or request validation error | Unit/composition | Real selector and calculation |
 | Calculation | Decimal runtime | Context-independent exact additive arithmetic | Low ambient precision, alternate traps/rounding, nonfinite input, exponent/precision limit, signed zero | Same exact answer or documented arithmetic failure | Unit | Real Decimal implementation |
-| Database adapter, later | Reader and PostgreSQL | One coherent full snapshot | Concurrent append during multi-table reconstruction | Pre-commit or post-commit coherent view; no torn OBS/EVD/SRC graph | PostgreSQL integration | Real PostgreSQL, separate writer connection |
-| Database adapter, later | Persistence/reader/selector/calculation | Lossless composed calculation | Decimal scale, repeated equal observations, appended correction | Same frozen result; new snapshot blocks changed-value conflict | PostgreSQL composition | Real database and domain; synthetic fixtures |
-| Acquisition, later | Database availability | Failed acquisition yields no analytical value | Connection failure or reconstruction exception | Propagate failure; no partial/cached result | Adapter tests; real DB where transaction behavior matters | Controlled failures; real transaction tests |
+| Database adapter | Reader and PostgreSQL | One coherent full snapshot | Concurrent append during multi-table reconstruction | Pre-commit or post-commit coherent view; no torn OBS/EVD/SRC graph | PostgreSQL integration | Real PostgreSQL, separate writer connection |
+| Database adapter | Persistence/reader/selector/calculation | Lossless composed calculation | Decimal scale, repeated equal observations, appended correction | Same frozen result; new snapshot blocks changed-value conflict | PostgreSQL composition | Real database and domain; synthetic fixtures |
+| Acquisition | Database availability | Failed acquisition yields no analytical value | Connection failure or reconstruction exception | Propagate failure; no partial/cached result | Adapter tests; real DB where transaction behavior matters | Controlled failures; real transaction tests |
 | Replay, later | Retained full input bundle and methodology | Historical output never silently rewritten | New source correction or new policy version | Old bundle repeats; new bundle/version is a distinct computation | System/composition | Real retained records; durable storage only when implemented |
 
 No provider network is required. No runtime/package versions, direct or
@@ -286,7 +287,7 @@ Use current Python 3.12 and locked dependencies; `uv lock --check` remains a gat
 2. **Two-date rate/yield changes (implemented).** Pure composition using the
    selector, complete Decimal context, explicit blocked outcomes and lineage; test both boundaries
    together. No live provider or canonical write.
-3. **Snapshot-reader composition.** Only once needed, compose the existing full
+3. **Snapshot-reader composition (implemented).** Compose the existing full
    reader and pure analytics. Real PostgreSQL concurrent append and round-trip
    tests prove the new seam. Avoid premature filtered-query infrastructure.
 4. **Broader market and transaction methods.** Add only reviewed formulas and
@@ -514,11 +515,102 @@ The dependency matrix above is exercised for the pure calculation rows:
 - a later correction blocks a new snapshot without changing an earlier result
   or the retained input dataset.
 
-No database, filesystem publication, worker, schema, migration, release store,
-external dependency, or lockfile change is introduced. Existing real-PostgreSQL
-CI still guards migration/concurrency/recovery contracts, but does not prove an
-analytics database adapter. A separate composition increment should acquire one
-canonical read snapshot and exercise calculation against real PostgreSQL,
-including concurrent append and exact Decimal/lineage reconstruction. Durable
-analytical replay and release versioning remain later scope. Production inputs
-still require governed verification; ingestion's `PENDING` values remain blocked.
+The pure calculation increment introduced no database, filesystem publication,
+worker, schema, migration, release store, external dependency, or lockfile change.
+PostgreSQL CI guarded the persistence baseline at that step. The adapter below
+adds real snapshot-to-calculation composition coverage, including concurrent
+append and exact Decimal/lineage reconstruction. Durable analytical replay and
+release versioning remain later scope. Production inputs still require governed
+verification; ingestion's `PENDING` values remain blocked.
+
+## PostgreSQL Snapshot Composition
+
+`calculate_rate_change_from_database(engine, request)` is exported from
+`european_capital_markets.persistence`. The adapter composes the existing
+`load_canonical_dataset` reader and pure `calculate_rate_change`; it adds no
+query framework, filtered reader, migration, or persisted analytical result.
+The pure `analytics` package continues to depend only on domain records and
+standard-library arithmetic; database I/O stays in the persistence adapter.
+
+```python
+from european_capital_markets.persistence import calculate_rate_change_from_database
+
+result = calculate_rate_change_from_database(engine, request)
+```
+
+The adapter rejects an invalid request type before opening the database. For a
+valid request it calls the canonical reader exactly once. That reader owns one
+read-only `REPEATABLE READ` transaction spanning all canonical tables and their
+lineage junctions, reconstructs the complete dataset, and validates it. Only
+after the transaction closes does pure selection/calculation consume those
+retained records. The two endpoints cannot acquire independent snapshots.
+
+A concurrent append committed after the reader's snapshot is established is
+excluded from that in-flight reconstruction. A later invocation acquires a new
+snapshot and may gain equal supporting observations or block on a new conflict.
+This is coherent current acquisition, not a historical knowledge-time query or
+an archived snapshot. An old in-memory result does not change when a subsequent
+call sees new records. Long-term replay still requires durable analytical
+bundles and governed methodology/release retention.
+
+### Failures and Recovery Boundary
+
+Database acquisition, connection loss, query execution, reconstruction, and
+canonical validation failures propagate to the caller. They cannot become a
+normal `BLOCKED` analytical result, a cached value, or a partially populated
+calculation. There is no automatic retry. A caller can make a new invocation
+after the dependency is available; it then obtains a new snapshot.
+
+Missingness, pending verification, conflicts, and arithmetic representability
+continue to use the existing typed `BLOCKED` outcomes after successful canonical
+acquisition. The adapter changes neither eligibility nor numerical policy.
+
+Engine configuration and connection-pool health remain caller-owned. The tests
+use SQLAlchemy's real pool with pre-ping; the adapter does not add health checks,
+worker ownership, retry/backoff, provider access, or background recovery.
+
+### Dependency Verification
+
+| Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
+| --- | --- | --- | --- | --- | --- | --- |
+| Adapter | Canonical reader | Exactly one full snapshot before pure calculation | Independent endpoint acquisitions | One read-only repeatable-read transaction for the adapter invocation | PostgreSQL composition/concurrency | Real database/reader |
+| Calculation input | Writer, Numeric storage, reader, lineage ordinals | Preserve Decimal values, scales, verification, and source/evidence ordering | Representation or graph loss across persistence | Same result as the supplied canonical records; exact retained values and evidence tuples | PostgreSQL round trip | Real writer/database/reader/analytics |
+| Snapshot reconstruction | Concurrent append writer and PostgreSQL MVCC | No torn evidence/observation graph | Append commits between relation and observation reads | In-flight result keeps old coherent state; next acquisition sees the complete append | PostgreSQL concurrency | Real independent connections |
+| Adapter acquisition | PostgreSQL session and connection pool | Dependency failure is not analytical missingness | Reader backend connection terminated | Propagate DBAPI error; later explicit invocation can acquire successfully | PostgreSQL fault/recovery | Real backend termination |
+| Reconstructed canonical state | Reader and domain validators | Structural storage success is not semantic validity | Persisted unit incompatible with policy-rate field | Validation error; no calculated/blocked value returned | PostgreSQL composition | Real SQL fault injection and domain validators |
+| Adapter error routing | Reader/caller boundary | Reject bad request before I/O; no fallback after reader error | Invalid request, unavailable or malformed dependency | Preserve original exception; forbid downstream calculation | Unit | Mocked reader/calculator for routing only |
+
+`tests/integration/test_rate_change_snapshot.py` covers this composition using
+synthetic records in real PostgreSQL. Its concurrent test pauses reconstruction
+after the observation-evidence relation query, commits a public append writer
+on another connection, and then resumes. It checks actual server isolation and
+read-only settings and counts exactly one reader transaction. Equal and
+conflicting appends test both later outcomes. The pause occurs where independent
+READ COMMITTED queries could combine an old evidence map with new observations;
+no component or SQL response is replaced.
+
+Coordination uses SQLAlchemy events and bounded thread events/futures, not
+sleeps. Connection-loss injection terminates only the test's own paused reader
+backend and waits for termination before resuming it. Invalid-unit injection
+changes only synthetic test rows outside the canonical writer to demonstrate
+that reconstructed state must still pass domain validation. A subsequent
+explicit call after repair succeeds; this is not an adapter retry policy.
+
+Fixtures delete only their synthetic market-series records, lineage rows, and
+explicit source-ID namespace. They do not truncate unrelated canonical tables
+or touch ingestion-run state. Connections, listeners, and threads are cleaned
+up before fixture teardown. Real database execution is required: unit stubs
+prove only call routing and forbidden operations, not MVCC or recovery.
+
+No runtime dependency/version, lockfile, canonical writer/reader API, transaction
+isolation policy, schema, migration, or CI workflow change is introduced. The
+existing PostgreSQL CI job discovers these tests and reruns them after the
+migration downgrade/re-upgrade cycle. The full-dataset reader's memory and
+query cost remain unchanged; this is not yet a scaled analytical query service.
+
+The next justified increment is a design review of durable analytical bundles:
+lossless serialization, complete input/candidate retention, methodology identity,
+versioning, correction relationships, and release boundaries. Freeze those
+contracts before implementing archival writes or claiming durable historical
+reproducibility. Broader market/transaction formulas remain separately reviewed
+work rather than an automatic consequence of adding this adapter.
