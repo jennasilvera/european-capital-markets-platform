@@ -1,0 +1,304 @@
+# Market and Transaction Analytics: Phase 1 Design
+
+## Status and decision
+
+This is the design review following Step 13H, not an implemented analytics API.
+It defines the first implementation boundary and its acceptance tests. No
+canonical schema, ingestion contract, or verification state changes here.
+
+Start with deterministic selection of market observations on explicit economic
+dates. Then calculate two-date policy-rate, government-yield, and swap-rate
+changes in basis points. These operations establish selection, disagreement,
+precision, and lineage contracts before adding wider analytics.
+
+A verified, reproducible result is the objective. The current ECB adapter emits
+`PENDING` populated observations, so successful ingestion alone cannot supply
+eligible production inputs. This design does not invent or automate a
+verification workflow to work around that constraint.
+
+## Review of existing boundaries
+
+| Existing contract | Consequence for analytics |
+| --- | --- |
+| Seven market-series families and typed definitions | Match canonical economic identity and the governed field/unit; do not substitute a provider ticker. |
+| Append writer permits multiple observations for a series/date | Selection must inspect disagreement and repeated evidence; an economic tuple is not unique. |
+| `ObservationRecord` separates value class, verification, economic date, evidence, and calculation inputs | Reuse those distinctions; ingestion and evidence quality are not analytical approval. |
+| `load_canonical_dataset` validates one read-only repeatable-read snapshot | Use one reconstructed dataset for a calculation; separate repository calls do not share a snapshot. |
+| Source access/publication dates are date-granular and publication dates optional | They cannot prove when a fact first became available to the platform. |
+| `verified_at` records verification, not ingestion or a history of all verification transitions | It is not a substitute for knowledge-time versioning. |
+| Existing FX conversion uses explicit inputs and a private Decimal context | Reuse that discipline; do not add implicit FX lookup to market changes. |
+| `REL` and `ASM` concepts exist without frozen release/assumption record models | Do not create database-only release semantics or claim durable release support. |
+
+The historical market-series document describes its original FX-only increment;
+the European market framework, current domain code, migration `0002`, and the
+persistence contract establish the implemented seven-family extension. Existing
+canonical FX conversion and currency-normalized aggregate validation are already
+implemented; this layer does not replace them.
+
+The tracked tree has no `analytics/market`, `analytics/ecm`, `analytics/ig_dcm`,
+or `analytics/leveraged_finance` directories. Their README representation is an
+intended organization, not existing implementation. Keep methodology here;
+place future reusable Python under `src/european_capital_markets/analytics/`.
+Create product-specific directories only when a concrete calculation needs them.
+
+## Canonical facts and derived outputs
+
+Canonical storage remains the source of stable identities, disclosed levels,
+source evidence, explicit missingness, and governed canonical calculations such
+as FX conversion. A market change is a downstream `CALCULATED` result, not a
+new sourced market level. It receives no fabricated `OBS` ID.
+
+Estimates, assumptions, and judgments cannot enter the initial calculation as
+observed levels. Commentary, market favorability scores, issuer recommendations,
+and execution judgments remain outside numerical results.
+
+Initially return immutable in-memory records. Do not persist analytics, add a
+migration, allocate release IDs, or write calculations back through the append
+writer. Durable output/release contracts need a separate design increment.
+
+## Dates, snapshots, and reproducibility
+
+Every request supplies a canonical series ID, the governed field, and exact
+`prior_date` and `current_date`, with `prior_date < current_date`. Dates are
+calendar dates, not instants. Reject datetimes at a date-only API boundary;
+do not truncate caller timestamps or use the machine's current date.
+
+Both endpoints use the same validated frozen dataset. No hidden query, provider
+retrieval, clock read, reference-catalog reload, or second database snapshot may
+occur during selection or calculation.
+
+Two temporal questions must remain distinct:
+
+1. **Economic-date calculation over a supplied snapshot:** what do these exact
+   retained records report for the requested dates? This is the initial mode.
+2. **Known-at historical reconstruction:** which records and verification state
+   were actually available at a historical instant? This is not supported by the
+   current canonical model and must fail as an unsupported request, not degrade
+   silently into mode 1.
+
+A repeatable-read transaction guarantees coherence during acquisition; it is
+not a durable historical snapshot. An observation-ID list or digest alone also
+cannot reconstruct content if records are later changed. Repeatability in this
+increment means equal retained input content plus equal policy/methodology gives
+equal output. Long-term replay requires retaining the full input bundle and
+versioned methodology; durable storage of that bundle is a later prerequisite
+for released outputs. No historical backtest or no-look-ahead claim is made.
+
+Do not infer availability from source access/publication date, `verified_at`,
+run creation time, sequence allocation, or canonical ID order. Corrections
+appended for an old economic date enter a newly acquired snapshot; they never
+silently change an already retained input bundle or result.
+
+## Exact-date selection policy v1
+
+The first selector is pure and operates on a validated `CanonicalDataset`.
+Validation of the whole dataset remains authoritative; a convenience slice
+must not bypass subject, lineage, field, or cross-record consistency checks.
+
+For one series, field, and requested date:
+
+1. Require the canonical series and exactly one compatible typed definition.
+   The governed field and unit must match the series family. Reference labels
+   or current provider mappings cannot override persisted economic identity.
+2. Inspect all observations for that exact subject/field/date, preserving every
+   candidate ID. Older/newer records are outside the candidate set and never
+   fill the endpoint. No business-day inference or frequency-based carry occurs.
+3. A candidate with `CONFLICT` verification blocks selection even if another
+   candidate is verified. Any populated candidate whose value class is not
+   `DISCLOSED` blocks this initial sourced-level selector as unsupported input.
+4. Require all populated candidates to contain finite Decimals with compatible
+   units. Different numeric values among populated candidates block selection,
+   including disagreement from `PENDING` candidates. Source tier and ID ordering
+   cannot resolve disagreement. Decimal numeric equality accepts `2.5 == 2.50`;
+   exact source representations remain retained for replay.
+5. Eligible populated candidates use `PRIMARY_VERIFIED`, `SECONDARY_VERIFIED`,
+   or `CROSS_VERIFIED` and retain a timezone-aware `verified_at` plus complete
+   evidence/source closure. Preserve each verification state; secondary data
+   must never be represented as primary. `PENDING` is never eligible.
+6. Equal eligible populated candidates yield one selected numeric value with
+   **all** eligible supporting observation IDs. No representative is chosen by
+   minimum/maximum ID. Repeated retrievals do not increase numerical weight.
+   Equal pending candidates remain visible as excluded candidates.
+7. Missing candidates are retained in diagnostics. They do not retract a
+   populated candidate or create a zero. A `CONFLICT` candidate still blocks
+   under rule 3; otherwise missingness alongside a usable value is not itself
+   contradictory. With no eligible populated candidate, return a blocked result.
+
+These are analytical eligibility rules, not changes to canonical validity.
+For example, a canonical pending value can be valid and analytically ineligible.
+
+The selection outcome contains the request, policy version, status, selected
+value/unit if successful, all eligible supporting IDs, all candidate IDs,
+explicit exclusion/block reasons, and original missing states. Candidate and
+support sets are serialized in stable ID order solely for deterministic output;
+that ordering conveys neither chronology nor source priority.
+
+Expected block reasons include `NO_EXACT_DATE_OBSERVATION`,
+`NO_ELIGIBLE_POPULATED_VALUE`, `CONFLICTING_VALUES`, `CONFLICT_STATE`, and
+`UNSUPPORTED_VALUE_CLASS`. Invalid identity, missing lineage, malformed scalar,
+nonfinite Decimal, or inconsistent field/unit is a validation error and cannot
+produce a partial numerical result. Reason names are proposed API vocabulary;
+freeze their executable types with the selector increment.
+
+If multiple block reasons apply, retain the complete reason set in stable
+lexical order. There is no arbitrary first-row error determining business
+status. Malformed input fails before analytical status evaluation.
+
+### Staleness and calendars
+
+An absent exact-date value is absent even when yesterday's value exists. This
+policy makes no implicit claim that every series publishes daily, or that a
+weekend date should resolve to Friday. A rate effective from a prior date is
+not automatically a same-date published observation. No market-calendar
+package or holiday dependency is introduced.
+
+Latest-on-or-before selection, validity intervals, maximum-age tolerances,
+calendar-day versus trading-day age, benchmark holidays, timezone/fixing
+conventions, and publication lag require separately reviewed policies. They
+must be explicit request parameters under versioned semantics before adoption.
+
+## Proposed interfaces and lineage
+
+The implementation should begin with frozen typed records equivalent to:
+
+| Interface | Input | Output and ownership |
+| --- | --- | --- |
+| Exact-date selector | Validated dataset, series ID, field, date, policy version | Selection outcome including support and exclusion provenance; no I/O |
+| Two-date rate change | Same dataset, two dates, compatible rate/yield series, fixed methodology version | Calculated Decimal or explicit blocked outcome; preserves both selections |
+| Database composition adapter, later increment | Engine plus analytical request | Acquire one full canonical dataset through the existing reader; invoke pure analytics |
+
+Do not expose unvalidated constructors as proof of coherent dataset validation.
+The public function validates its input aggregate, or consumes an explicitly
+validated wrapper whose only construction path performs that validation.
+
+A calculated result retains series identity and full typed definition, field,
+ordered endpoint roles/dates, endpoint selections, original input values/units,
+all supporting OBS IDs, and complete OBS -> EVD -> SRC record closure. It also
+retains excluded/conflicting candidate records needed to explain why selection
+succeeded or blocked. Preserve any source tuple ordering inside records; stable
+outer record ordering must not discard that structure.
+
+The result identifies the selection policy and calculation methodology versions,
+Decimal policy, output unit, and `CALCULATED` value class. Calculation success
+is not a new canonical verification state or release approval. A blocked result
+has no numerical value; one endpoint's success cannot conceal the other's
+failure. Retaining only a union of IDs loses endpoint roles and is insufficient.
+
+Any future snapshot digest must use a versioned lossless encoding of record
+types, dates/timestamps, Decimal strings, enums, and lineage ordering. It must
+cover selection candidates and the economic definition, not merely chosen
+values. A digest is an integrity aid, not a new canonical ID or an archived
+snapshot. Do not add a digest API until its serialization contract is tested.
+
+## Initial calculation and numerical policy
+
+For `POLICY_RATE`, `GOVERNMENT_YIELD`, and `SWAP_RATE` with canonical `PERCENT`:
+
+`change_bps = (current_percent - prior_percent) * Decimal('100')`
+
+Example: `2.40 -> 2.55` produces `+15` basis points. Zero changes and negative
+levels remain valid where permitted by the canonical family; no division is
+needed. Both endpoints must describe the same canonical economic series.
+
+Use an explicit local Decimal context with precision 38 and `ROUND_HALF_EVEN`.
+Do not inherit precision, rounding, exponent limits, or traps from caller
+state: define a complete fresh context. Trap invalid operations, division by
+zero, overflow, underflow, and inexact arithmetic for the initial subtraction/
+scaling calculation. Inputs and outputs must be finite. If the exact result
+cannot be represented under this policy, fail explicitly rather than silently
+round. Ambient precision/rounding/traps must not change the answer.
+
+Do not quantize results for presentation. Signed zero may be normalized to
+`Decimal('0')` at the derived-result boundary; preserve original input values.
+Output representation and serialization must be deterministic, including
+numerically equal supporting inputs with different scales. Specify a canonical
+result encoding during implementation, without using ambient-context
+`Decimal.normalize()` on canonical inputs.
+
+Subsequent methods require their own versions and tests:
+
+| Method | Formula | Additional decisions before implementation |
+| --- | --- | --- |
+| Credit-spread change | current_bps - prior_bps | Preserve spread measure/benchmark identity and BASIS_POINTS units |
+| Volatility change | current_level - prior_level | Output INDEX_POINTS, not percentage or a generic volatility score |
+| Equity-index return | ((current_level / prior_level) - 1) * 100 | Require positive prior level; document division rounding and index variant; price return is not total return |
+| Curve slope/change | Explicit tenor levels and differences | Compatible benchmark/conventions, same endpoint dates, complete lineage for every leg |
+
+FX returns and cross-currency transaction analytics are not part of the first
+rate-change method. Existing FX conversion remains a canonical governed
+calculation with its own explicit two-input contract and precision policy.
+
+## Transaction analytics sequencing
+
+Transaction counts and issuance volumes follow market selection/calculation
+contracts rather than shipping as an ungoverned dashboard query.
+
+Before implementing them, freeze product scope, universe/coverage, date basis
+(announcement/pricing/settlement), lifecycle eligibility as of that date,
+transaction versus instrument granularity, amendment treatment, and treatment
+of cancelled, withdrawn, postponed, and failed events. Preserve those records;
+activity metrics can classify them explicitly instead of deleting them.
+
+Issuance volume additionally requires native versus reporting-currency policy,
+complete tranche coverage, exact issue-size input selection, explicit FX input
+lineage where necessary, and prevention of transaction/tranche double counting.
+An empty observed universe is not proof that market-wide issuance was zero.
+Do not infer market closure from missing coverage.
+
+## Dependency path and test matrix
+
+The initial path is controlled economic identity -> validated canonical snapshot
+-> exact-date candidates -> disagreement and eligibility -> two selections ->
+versioned arithmetic -> result with full material lineage. Database acquisition
+is a separate integration seam; release persistence remains deferred.
+
+The following tests are **required future acceptance coverage**, not tests added
+or executed by this documentation increment.
+
+| Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
+| --- | --- | --- | --- | --- | --- | --- |
+| Selector | Canonical domain validator | Identity/field/unit/lineage coherence | Wrong family, missing subject/evidence/source, duplicate IDs | Validation error before value selection | Contract/composition | Real domain records/validators |
+| Selector | Candidate set | Order-independent exact-date consensus | Reordering, equal repeated retrievals, differing Decimal scales | Same value and complete stable support set | Unit/property cases | Real frozen records |
+| Selector | Verification and missingness | Explicit eligibility without hidden fallback | Pending-only, conflict beside verified, unequal pending, all missing, same-date missing beside populated | Block or select under rules above; no zero/tombstone | Unit/contract | Real domain records |
+| Selector | Dates | Exact economic dates | Older-only/newer-only input, weekend, datetime supplied, changed local timezone | No carry or date truncation; deterministic blocked result | Unit | Real date/timestamp values |
+| Result | Full candidate/evidence closure | Explain every material input and decision | Missing locator/source, candidate lost from diagnostics | Reject incomplete lineage | Composition | Real canonical bundle |
+| Calculation | Two successful selections | Both endpoints required, same series | One endpoint blocked, reversed/equal dates, cross-series mix | No numerical result or request validation error | Unit/composition | Real selector and calculation |
+| Calculation | Decimal runtime | Context-independent exact additive arithmetic | Low ambient precision, alternate traps/rounding, nonfinite input, exponent/precision limit, signed zero | Same exact answer or documented arithmetic failure | Unit | Real Decimal implementation |
+| Database adapter, later | Reader and PostgreSQL | One coherent full snapshot | Concurrent append during multi-table reconstruction | Pre-commit or post-commit coherent view; no torn OBS/EVD/SRC graph | PostgreSQL integration | Real PostgreSQL, separate writer connection |
+| Database adapter, later | Persistence/reader/selector/calculation | Lossless composed calculation | Decimal scale, repeated equal observations, appended correction | Same frozen result; new snapshot blocks changed-value conflict | PostgreSQL composition | Real database and domain; synthetic fixtures |
+| Acquisition, later | Database availability | Failed acquisition yields no analytical value | Connection failure or reconstruction exception | Propagate failure; no partial/cached result | Adapter tests; real DB where transaction behavior matters | Controlled failures; real transaction tests |
+| Replay, later | Retained full input bundle and methodology | Historical output never silently rewritten | New source correction or new policy version | Old bundle repeats; new bundle/version is a distinct computation | System/composition | Real retained records; durable storage only when implemented |
+
+No provider network is required. No runtime/package versions, direct or
+transitive dependencies, lockfile, database schema, or migrations change here.
+Do not add calendar, dataframe, numerical, or workflow frameworks for this scope.
+Use current Python 3.12 and locked dependencies; `uv lock --check` remains a gate.
+
+## Delivery increments and acceptance gates
+
+1. **Exact-date selection contract and implementation.** Frozen outcome/request
+   types, deterministic consensus and diagnostics, complete candidate lineage,
+   and domain-composed tests. No calculation, database adapter, or persistence.
+2. **Two-date rate/yield changes.** Pure composition using the selector, complete
+   Decimal context, explicit blocked outcomes and lineage; test both boundaries
+   together. No live provider or canonical write.
+3. **Snapshot-reader composition.** Only once needed, compose the existing full
+   reader and pure analytics. Real PostgreSQL concurrent append and round-trip
+   tests prove the new seam. Avoid premature filtered-query infrastructure.
+4. **Broader market and transaction methods.** Add only reviewed formulas and
+   universe/coverage contracts with corresponding awkward-case tests.
+5. **Durable analytical bundles and releases.** Freeze serialization, historical
+   retention, methodology identity, correction/supersession, and release approval
+   before claiming persistent reproducibility or emitting released outputs.
+
+For the pure implementation increments, concurrency is deterministic access to
+immutable records, not a new database-locking contract. Migration/recovery tests
+are not invented for functions that perform no writes. Existing database CI
+continues to guard the baseline. Escalate to real PostgreSQL when the reader is
+composed, and to real storage/restart tests when durable bundles are introduced.
+
+Remaining risks are explicit: production inputs still need governed verification;
+exact-date coverage may be sparse; historical knowledge-time reconstruction is
+unavailable; conflicting corrections block until governed resolution exists;
+in-memory results are not durable releases. These limits are acceptable for the
+first pure analytical boundary, and prohibit stronger production/release claims.

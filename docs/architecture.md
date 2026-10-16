@@ -138,3 +138,13 @@ The framework separates stable market-series identity, date-level sourced
 observations, and downstream market analytics before additional rate, yield,
 spread, equity-index, or volatility series are added to the executable domain
 model.
+
+## Market and Transaction Analytics Design
+
+The first post-ingestion analytical layer is specified in
+[Market and Transaction Analytics: Phase 1 Design](methodology/market_transaction_analytics.md).
+It begins with exact-date observation selection and then rate/yield changes,
+with explicit verification, conflict, precision, and input-lineage rules.
+This is a design boundary; executable analytics and durable analytical releases
+are not implemented. Economic-date calculations over a supplied snapshot must
+not be presented as historical knowledge-time reconstruction.
