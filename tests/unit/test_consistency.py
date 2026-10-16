@@ -821,3 +821,46 @@ def test_converted_tranche_aggregate_mismatch_is_rejected() -> None:
                 ),
             ),
         )
+
+
+@pytest.mark.parametrize("prec,trap", [(1, False), (2, True), (28, False)])
+@pytest.mark.parametrize(
+    "aggregate_value,valid",
+    [
+        ("100000000000000000000000000000000000000.01", True),
+        ("100000000000000000000000000000000000000", False),
+    ],
+)
+def test_aggregate_equality_is_exact_under_caller_decimal_context(
+    prec,
+    trap,
+    aggregate_value,
+    valid,
+):
+    from decimal import Inexact, Rounded, localcontext
+
+    first = _issue_size(value=Decimal("100000000000000000000000000000000000000"))
+    second = _issue_size(
+        observation_id="OBS000000003",
+        instrument_id="INS000000002",
+        value=Decimal("0.01"),
+    )
+    aggregate = _calculated_aggregate(value=Decimal(aggregate_value))
+    with localcontext() as context:
+        context.prec = prec
+        context.Emax = 999999 if prec == 28 else 2
+        context.Emin = -2
+        context.traps[Inexact] = context.traps[Rounded] = trap
+        context.clear_flags()
+        if valid:
+            validate_cross_observation_consistency(
+                instruments=(_instrument(), _instrument("INS000000002")),
+                observations=(first, second, aggregate),
+            )
+        else:
+            with pytest.raises(ValueError, match="does not equal"):
+                validate_cross_observation_consistency(
+                    instruments=(_instrument(), _instrument("INS000000002")),
+                    observations=(first, second, aggregate),
+                )
+        assert not any(context.flags.values())

@@ -2,6 +2,7 @@
 
 from datetime import date
 from decimal import Decimal
+from fractions import Fraction
 
 from european_capital_markets.domain.entities import InstrumentRecord
 from european_capital_markets.domain.fx_conversion import (
@@ -270,15 +271,19 @@ def _validate_calculated_transaction_aggregates(
                 "tranches require instrument.issue_size_converted inputs."
             )
 
-        input_total = sum(
-            (
-                input_observation.value
-                for input_observation in inputs
-            ),
-            Decimal("0"),
-        )
+        amounts = [aggregate.value, *(item.value for item in inputs)]
+        if any(
+            not isinstance(value, Decimal) or not value.is_finite() for value in amounts
+        ):
+            raise ValueError("Aggregate amounts must be finite Decimal values.")
 
-        if input_total != aggregate.value:
+        # Fraction(Decimal) is an exact conversion, independent of Decimal
+        # context. Comparing the exact rational sum avoids rounding a valid
+        # accounting identity or accepting a rounded, incorrect aggregate.
+        # Canonical values and persistence remain Decimal; no float is used.
+        input_total = sum((Fraction(item.value) for item in inputs), Fraction(0))
+
+        if input_total != Fraction(aggregate.value):
             raise ValueError(
                 "Calculated transaction aggregate does not equal its "
                 "currency-normalized tranche-size inputs."

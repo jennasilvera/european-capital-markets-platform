@@ -250,3 +250,25 @@ type.
 A later persistence implementation may store generated exceptions and review
 outcomes, but the underlying economic facts remain ordinary governed
 observations with their original lineage.
+
+## Arithmetic Context Independence
+
+Currency-normalized aggregate reconciliation compares the exact sum of finite
+Decimal inputs with the finite Decimal aggregate. Internally, exact rational
+conversion of those Decimals avoids ambient precision, rounding, traps, or
+exponent limits changing the accounting equality. Canonical values remain
+Decimal; neither floating point nor presentation rounding participates.
+
+The arithmetic dependency seam is exercised with real standard-library
+arithmetic and real domain validators, without mocks:
+
+| Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
+| --- | --- | --- | --- | --- | --- | --- |
+| Aggregate reconciliation | Decimal inputs and exact rational comparison | Exact accounting equality | Low/default caller precision rounds away a fractional amount | Accept exact total; reject rounded mismatch | Domain composition | Real Decimal/Fraction |
+| FX conversion | Complete private Decimal context | Governed 38-digit result | Caller enables inexact traps or narrows exponent limits | Same direct/inverse result; caller flags unchanged | Unit/domain | Real Decimal |
+| Arithmetic inputs | Finite values | No undefined monetary result | NaN or infinity in FX input | Explicit validation error | Unit | Real Decimal |
+
+No package versions, lockfile, schema, transaction, or migration changes are
+needed for this correction. Database round trips and migration/concurrency/
+recovery contracts remain guarded by the existing real-PostgreSQL CI suite;
+these tests do not claim new storage or worker-ownership guarantees.
