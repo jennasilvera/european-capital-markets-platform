@@ -5,6 +5,7 @@ from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
+from european_capital_markets.analytics._decimal import canonical_decimal
 from european_capital_markets.domain.dataset import (
     CanonicalDataset,
     validate_canonical_dataset,
@@ -197,7 +198,7 @@ def select_market_observation(
     unit = None
     if not reasons:
         # All eligible values are numerically equal; none is a preferred source.
-        value = _canonical_decimal(eligible[0].value)
+        value = canonical_decimal(eligible[0].value)
         unit = eligible[0].unit
     return MarketSelectionResult(
         request=request,
@@ -267,18 +268,6 @@ def _candidate_decision(o: ObservationRecord) -> MarketCandidateDecision:
     elif o.verification_state not in _VERIFIED:
         reasons.add(CandidateExclusionReason.UNVERIFIED)
     return MarketCandidateDecision(o, tuple(sorted(reasons)))
-
-
-def _canonical_decimal(value: Decimal) -> Decimal:
-    """Remove scale-only differences without rounding or using Decimal context."""
-
-    if value.is_zero():
-        return Decimal(0)
-    sign, digits, exponent = value.as_tuple()
-    end = len(digits)
-    while digits[end - 1] == 0:
-        end -= 1
-    return Decimal((sign, digits[:end], exponent + len(digits) - end))
 
 
 def _lineage_closure(

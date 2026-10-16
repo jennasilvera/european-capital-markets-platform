@@ -3,9 +3,9 @@
 ## Status and decision
 
 This is the analytical design following Step 13H. The exact-date market
-selector is implemented; calculations, database composition, and durable
-analytical releases remain subsequent increments. The implementation status
-and executable selection contract are recorded below. Canonical schema,
+selector and pure two-date rate/yield changes are implemented. Database
+composition and durable analytical releases remain subsequent increments.
+Implementation status and executable contracts are recorded below. Canonical schema,
 ingestion contracts, and verification states remain unchanged.
 
 Start with deterministic selection of market observations on explicit economic
@@ -166,7 +166,7 @@ The staged interfaces use frozen typed records:
 | Interface | Input | Output and ownership |
 | --- | --- | --- |
 | Exact-date selector (implemented) | Validated dataset, series ID, field, date, policy version | Selection outcome including support and exclusion provenance; no I/O |
-| Two-date rate change | Same dataset, two dates, compatible rate/yield series, fixed methodology version | Calculated Decimal or explicit blocked outcome; preserves both selections |
+| Two-date rate change (implemented) | Same dataset, two dates, compatible rate/yield series, fixed methodology version | Calculated Decimal or explicit blocked outcome; preserves both selections |
 | Database composition adapter, later increment | Engine plus analytical request | Acquire one full canonical dataset through the existing reader; invoke pure analytics |
 
 Do not expose unvalidated constructors as proof of coherent dataset validation.
@@ -255,9 +255,9 @@ versioned arithmetic -> result with full material lineage. Database acquisition
 is a separate integration seam; release persistence remains deferred.
 
 The following matrix defines acceptance coverage across the staged delivery.
-Selector/domain cases are now exercised by the implementation tests below.
-Calculation, database-adapter, and durable replay rows remain future acceptance
-requirements; they are not claimed as implemented coverage.
+Selector/domain and pure calculation cases are now exercised by the
+implementation tests below. Database-adapter and durable replay rows remain
+future acceptance requirements; they are not claimed as implemented coverage.
 
 | Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -283,8 +283,8 @@ Use current Python 3.12 and locked dependencies; `uv lock --check` remains a gat
 1. **Exact-date selection contract and implementation (implemented).** Frozen
    outcome/request types, deterministic consensus and diagnostics, complete candidate lineage,
    and domain-composed tests. No calculation, database adapter, or persistence.
-2. **Two-date rate/yield changes.** Pure composition using the selector, complete
-   Decimal context, explicit blocked outcomes and lineage; test both boundaries
+2. **Two-date rate/yield changes (implemented).** Pure composition using the
+   selector, complete Decimal context, explicit blocked outcomes and lineage; test both boundaries
    together. No live provider or canonical write.
 3. **Snapshot-reader composition.** Only once needed, compose the existing full
    reader and pure analytics. Real PostgreSQL concurrent append and round-trip
@@ -400,4 +400,125 @@ Database transaction/concurrency, crash recovery, and migration downgrade/
 re-upgrade behavior continue to run in existing PostgreSQL CI. No new database
 adapter, storage boundary, or migration is introduced by selection, so those
 checks protect the baseline rather than proving an unimplemented analytics
-adapter. The next increment is pure two-date rate/yield change composition.
+adapter. Pure two-date rate/yield composition is documented below.
+
+## Implemented Two-Date Rate/Yield Changes
+
+`calculate_rate_change(dataset, RateChangeRequest(...))` composes the public
+exact-date selector twice over the same caller-supplied canonical dataset.
+Neither caller-created endpoint selections nor independently acquired snapshots
+are accepted as inputs. Full canonical validation remains in the selector;
+there is no unvalidated fast path or cached query. The function performs no I/O.
+
+The supported families are `POLICY_RATE`, `GOVERNMENT_YIELD`, and `SWAP_RATE`.
+Their governed fields must carry percentage-point levels; the output is basis
+points. Other families and incompatible requested fields are validation errors,
+not alternative formulas selected by a display unit.
+
+```python
+from datetime import date
+from european_capital_markets.analytics import RateChangeRequest, calculate_rate_change
+
+result = calculate_rate_change(
+    dataset,
+    RateChangeRequest(
+        market_series_id="MKS000000001",
+        field_name="market_series.rate_percent",
+        prior_date=date(2026, 10, 15),
+        current_date=date(2026, 10, 16),
+    ),
+)
+```
+
+Request defaults identify `market-rate-change-v1` and `market-exact-date-v1`.
+Unknown versions are rejected; economic dates must be genuine dates with
+`prior_date < current_date`. There is no knowledge-time cutoff, implicit clock,
+calendar adjustment, carry-forward, interpolation, or provider fallback.
+
+### Outcome and Lineage Contract
+
+The frozen `RateChangeResult` retains `request`, `prior`, and `current`.
+The latter two are complete `MarketSelectionResult` records with their own
+endpoint roles, exact source representations, supporting IDs, excluded or
+conflicting candidates, and transitive observation/evidence/source closure.
+This preserves mixed verification states without promoting them or choosing one
+source as the representative. Both endpoint decisions are retained even when
+the prior selection blocks.
+
+Successful outcomes have status `CALCULATED`, a Decimal `value`,
+`value_class=CALCULATED`, and empty block reasons. Their convenience
+`input_observation_ids` concatenate all prior support followed by all current
+support. ID order inside an endpoint has no chronological or quality meaning.
+The nested endpoint records remain authoritative for roles and provenance.
+
+A `BLOCKED` outcome has `value=None`, `value_class=None`, and no claimed
+`input_observation_ids`; the endpoint selections still retain every candidate
+and eligible supporting ID. Block reasons are sorted lexically:
+
+- `PRIOR_SELECTION_BLOCKED` and/or `CURRENT_SELECTION_BLOCKED`: the corresponding
+  endpoint retains the detailed selection reasons and original missing states;
+- `ARITHMETIC_NOT_REPRESENTABLE`: both endpoints selected successfully but the
+  calculation failed the numerical policy. `arithmetic_signals` retains the
+  sorted names of Decimal signals raised by the private calculation context.
+
+The result's `unit=BASIS_POINTS` identifies the requested metric even when
+blocked; it is not a fabricated value. `decimal_policy_ref` is
+`market-rate-change-decimal-38-v1`. No canonical observation or release ID is
+allocated; success is neither source verification nor release approval.
+
+### Numerical Policy v1
+
+The formula is `(current_percent - prior_percent) * Decimal('100')`.
+Both operations run in one fresh context with precision 38, `ROUND_HALF_EVEN`,
+`Emin=-999999`, `Emax=999999`, `clamp=0`, and initially clear flags. Traps are
+explicitly enabled for `InvalidOperation`, `DivisionByZero`, `Overflow`,
+`Underflow`, and `Inexact`. Caller context and mutable `decimal.DefaultContext`
+do not supply any setting.
+
+Subtraction and scaling must each be exact within this context. A representable
+final value does not rescue an inexact or unrepresentable intermediate step.
+`Rounded` without `Inexact` can merely discard coefficient zeros and is allowed;
+exact subnormal results are allowed. Underflow with information loss is blocked.
+No arithmetic failure is silently rounded into an apparently valid change.
+Malformed canonical inputs remain validation errors, not arithmetic blocks.
+
+Result scale and signed zero use the same context-independent tuple
+canonicalization as selection. Original endpoint values retain their scale and
+sign. No presentation quantization, binary floating point, or caller precision
+participates. A high-precision pair can legitimately cancel to an exactly
+representable small change; input digit count alone is not an eligibility rule.
+
+### Dependency and Test Completion
+
+`tests/unit/test_rate_changes.py` composes real canonical records, reference
+catalog parsing with synthetic observations, full domain validation, both real
+selectors, and real Decimal arithmetic. It does not mock a dependency. The
+shared internal Decimal representation helper is also regression-checked by the
+existing selection tests after extraction for this second consumer.
+
+The dependency matrix above is exercised for the pure calculation rows:
+
+- three supported families, positive/negative/zero changes, and percentage-point
+  versus basis-point semantics;
+- one or both endpoints pending, missing, or conflicting, preserving diagnostics
+  rather than returning a partial value;
+- repeated equal observations, mixed verified states, original Decimal scales,
+  all supporting IDs, evidence, and input-order permutations;
+- separate series identities cannot fill one another's missing endpoint;
+- precision limits, exact cancellation beyond 38 input digits, upper exponent
+  boundaries, exact subnormals, underflow, overflow, and signed zero;
+- restrictive caller precision, rounding, traps, exponent limits, and pre-existing
+  flags leave success/failure and caller state unchanged;
+- malformed source/evidence composition, date errors, unsupported families,
+  unknown method/selection versions, and rejected knowledge-time parameters;
+- a later correction blocks a new snapshot without changing an earlier result
+  or the retained input dataset.
+
+No database, filesystem publication, worker, schema, migration, release store,
+external dependency, or lockfile change is introduced. Existing real-PostgreSQL
+CI still guards migration/concurrency/recovery contracts, but does not prove an
+analytics database adapter. A separate composition increment should acquire one
+canonical read snapshot and exercise calculation against real PostgreSQL,
+including concurrent append and exact Decimal/lineage reconstruction. Durable
+analytical replay and release versioning remain later scope. Production inputs
+still require governed verification; ingestion's `PENDING` values remain blocked.

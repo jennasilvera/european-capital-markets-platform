@@ -145,8 +145,9 @@ The first post-ingestion analytical layer is specified in
 [Market and Transaction Analytics: Phase 1 Design](methodology/market_transaction_analytics.md).
 It begins with exact-date observation selection and then rate/yield changes,
 with explicit verification, conflict, precision, and input-lineage rules.
-The pure exact-date selector is implemented under
-`src/european_capital_markets/analytics/`. Derived market calculations,
-database composition, and durable analytical releases remain subsequent work.
+The pure exact-date selector and two-date rate/yield changes are implemented
+under `src/european_capital_markets/analytics/`. Database composition, broader
+market and transaction calculations, and durable analytical releases remain
+subsequent work.
 Economic-date calculations over a supplied snapshot must not be presented as
 historical knowledge-time reconstruction.
