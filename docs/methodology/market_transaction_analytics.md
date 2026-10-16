@@ -614,3 +614,11 @@ versioning, correction relationships, and release boundaries. Freeze those
 contracts before implementing archival writes or claiming durable historical
 reproducibility. Broader market/transaction formulas remain separately reviewed
 work rather than an automatic consequence of adding this adapter.
+
+## Durable Bundle Contract Review
+
+The [durable analytical bundle contract](analytical_bundles.md) now specifies
+full acquired-dataset retention, strict lossless encoding, execution identity,
+complete result replay, and correction/release boundaries. This is design only;
+no archive or codec is implemented. The next increment is a pure codec and
+replay verifier before choosing and testing an archival backend.

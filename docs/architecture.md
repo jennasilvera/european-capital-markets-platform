@@ -153,3 +153,11 @@ and transaction calculations and durable analytical releases remain subsequent
 work.
 Economic-date calculations over a supplied snapshot must not be presented as
 historical knowledge-time reconstruction.
+
+## Durable Analytical Bundle Boundary
+
+The [bundle contract review](methodology/analytical_bundles.md) specifies retention
+of the full acquired canonical dataset with its request, complete outcome, and
+execution identity. Replay requires strict lossless decoding and recomputation;
+result lineage alone cannot establish candidate completeness. This is a design
+boundary: codecs, archive publication, and release records remain unimplemented.

@@ -896,6 +896,7 @@ than relying on implementation behavior as undocumented specification.
 
 Key documents include:
 
+- [Durable Analytical Bundle Contract](docs/methodology/analytical_bundles.md)
 - [Market and Transaction Analytics Design](docs/methodology/market_transaction_analytics.md)
 - [European Market Framework](docs/methodology/european_market_framework.md)
 - [Market-Series Methodology](docs/methodology/market_series.md)
