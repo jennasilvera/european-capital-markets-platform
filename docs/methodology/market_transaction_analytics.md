@@ -2,9 +2,11 @@
 
 ## Status and decision
 
-This is the design review following Step 13H, not an implemented analytics API.
-It defines the first implementation boundary and its acceptance tests. No
-canonical schema, ingestion contract, or verification state changes here.
+This is the analytical design following Step 13H. The exact-date market
+selector is implemented; calculations, database composition, and durable
+analytical releases remain subsequent increments. The implementation status
+and executable selection contract are recorded below. Canonical schema,
+ingestion contracts, and verification states remain unchanged.
 
 Start with deterministic selection of market observations on explicit economic
 dates. Then calculate two-date policy-rate, government-yield, and swap-rate
@@ -137,8 +139,8 @@ Expected block reasons include `NO_EXACT_DATE_OBSERVATION`,
 `NO_ELIGIBLE_POPULATED_VALUE`, `CONFLICTING_VALUES`, `CONFLICT_STATE`, and
 `UNSUPPORTED_VALUE_CLASS`. Invalid identity, missing lineage, malformed scalar,
 nonfinite Decimal, or inconsistent field/unit is a validation error and cannot
-produce a partial numerical result. Reason names are proposed API vocabulary;
-freeze their executable types with the selector increment.
+produce a partial numerical result. Block reason names are frozen by
+`SelectionBlockReason`; per-candidate exclusions use `CandidateExclusionReason`.
 
 If multiple block reasons apply, retain the complete reason set in stable
 lexical order. There is no arbitrary first-row error determining business
@@ -157,13 +159,13 @@ calendar-day versus trading-day age, benchmark holidays, timezone/fixing
 conventions, and publication lag require separately reviewed policies. They
 must be explicit request parameters under versioned semantics before adoption.
 
-## Proposed interfaces and lineage
+## Interfaces and lineage
 
-The implementation should begin with frozen typed records equivalent to:
+The staged interfaces use frozen typed records:
 
 | Interface | Input | Output and ownership |
 | --- | --- | --- |
-| Exact-date selector | Validated dataset, series ID, field, date, policy version | Selection outcome including support and exclusion provenance; no I/O |
+| Exact-date selector (implemented) | Validated dataset, series ID, field, date, policy version | Selection outcome including support and exclusion provenance; no I/O |
 | Two-date rate change | Same dataset, two dates, compatible rate/yield series, fixed methodology version | Calculated Decimal or explicit blocked outcome; preserves both selections |
 | Database composition adapter, later increment | Engine plus analytical request | Acquire one full canonical dataset through the existing reader; invoke pure analytics |
 
@@ -252,8 +254,10 @@ The initial path is controlled economic identity -> validated canonical snapshot
 versioned arithmetic -> result with full material lineage. Database acquisition
 is a separate integration seam; release persistence remains deferred.
 
-The following tests are **required future acceptance coverage**, not tests added
-or executed by this documentation increment.
+The following matrix defines acceptance coverage across the staged delivery.
+Selector/domain cases are now exercised by the implementation tests below.
+Calculation, database-adapter, and durable replay rows remain future acceptance
+requirements; they are not claimed as implemented coverage.
 
 | Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -276,8 +280,8 @@ Use current Python 3.12 and locked dependencies; `uv lock --check` remains a gat
 
 ## Delivery increments and acceptance gates
 
-1. **Exact-date selection contract and implementation.** Frozen outcome/request
-   types, deterministic consensus and diagnostics, complete candidate lineage,
+1. **Exact-date selection contract and implementation (implemented).** Frozen
+   outcome/request types, deterministic consensus and diagnostics, complete candidate lineage,
    and domain-composed tests. No calculation, database adapter, or persistence.
 2. **Two-date rate/yield changes.** Pure composition using the selector, complete
    Decimal context, explicit blocked outcomes and lineage; test both boundaries
@@ -302,3 +306,98 @@ exact-date coverage may be sparse; historical knowledge-time reconstruction is
 unavailable; conflicting corrections block until governed resolution exists;
 in-memory results are not durable releases. These limits are acceptable for the
 first pure analytical boundary, and prohibit stronger production/release claims.
+
+## Implemented Exact-Date Selector
+
+The executable boundary is `european_capital_markets.analytics`:
+
+```python
+from datetime import date
+from european_capital_markets.analytics import (
+    ExactDateMarketRequest,
+    select_market_observation,
+)
+
+result = select_market_observation(
+    dataset,
+    ExactDateMarketRequest(
+        market_series_id="MKS000000001",
+        field_name="market_series.rate_percent",
+        as_of_date=date(2026, 10, 16),
+    ),
+)
+```
+
+`dataset` is a caller-supplied `CanonicalDataset`; selection performs no I/O.
+`ExactDateMarketRequest.policy_version` defaults to `market-exact-date-v1`.
+Unknown versions are rejected. There is no `known_at` parameter or historical
+knowledge-time mode. Genuine date objects are required; datetimes are rejected.
+
+`MarketSelectionResult` is a frozen in-memory outcome with the request, canonical
+series/definition, `SELECTED` or `BLOCKED` status, optional value/unit, sorted
+block reasons, and candidate decisions. Each decision retains its original
+`ObservationRecord` and exclusion reasons. Missing-state and verification
+metadata remain on that exact record. It retains:
+
+- `candidate_observation_ids`: every exact-date candidate, sorted by ID;
+- `eligible_observation_ids`: candidates individually eligible under the policy,
+  even if another candidate blocks the overall outcome;
+- `supporting_observation_ids`: all eligible support on success, empty on block;
+- `lineage_observations`: candidates plus transitive input observations;
+- `evidence` and `sources`: complete provenance closure for those observations.
+
+A blocked outcome always has `value=None` and `unit=None`. With no candidates,
+both `NO_EXACT_DATE_OBSERVATION` and `NO_ELIGIBLE_POPULATED_VALUE` are retained.
+All block and exclusion reasons have stable lexical ordering. Outer lineage
+collections are sorted by canonical ID, preserving original evidence/input
+ordering inside each record. ID sorting is presentation only.
+
+Successful values remove trailing coefficient zeros by Decimal tuple
+reconstruction, without arithmetic or ambient-context normalization. Signed
+zero becomes `Decimal('0')`. Original candidate Decimal scale and sign remain
+unchanged. This makes selected-value representation independent of which equal
+source value was encountered first, without choosing a preferred observation.
+
+The analytical boundary requires tuple dataset collections and observation
+reference tuples, genuine observation taxonomy enums, date-only economic dates,
+and finite Decimal values throughout the supplied snapshot. The full canonical
+dataset validator then checks composition before filtering candidates. Invalid
+unrelated records therefore cannot be hidden by an otherwise successful request.
+`TypeError`/`ValueError` indicate malformed or unsupported input; business
+ineligibility and disagreement produce `BLOCKED`, not fabricated values.
+
+The family-to-field mapping is exposed by the domain helper
+`expected_market_observation_field`; the existing market validator and selector
+share it. Analytics does not maintain a second economic-field mapping.
+
+### Executed Selection Boundary Coverage
+
+`tests/unit/test_market_selection.py` exercises the real domain validators,
+reference-catalog loader with synthetic observations, ingestion handoff,
+selection, and lineage assembly. No validator, provider, or database mocks are
+used in these new tests. Catalog reads occur only in test setup; selection
+itself does not load the catalog.
+
+Coverage includes all seven families, missing/incorrect economic identity and
+units, incomplete source/evidence graphs, duplicate IDs, equal repeated
+retrievals, same-date disagreement including pending values, all canonical
+missing states, all eligible verification states, unsupported value classes,
+input ordering permutations, exact dates/weekends, datetime rejection,
+nonfinite Decimal values, restrictive Decimal contexts, transitive input
+closure, many-to-many evidence, and unchanged historical input bundles after
+an appended correction. A real ingestion handoff remains `PENDING` and is
+blocked. A mixed market/transaction dataset also exercises exact aggregate
+validation before selection under restrictive caller precision/traps/exponents.
+
+The latter seam exposed pre-existing context-dependent canonical arithmetic.
+Aggregate validation now compares exact rational equivalents of finite Decimal
+amounts, and canonical FX conversion uses its complete private context. Their
+regression coverage is in `test_consistency.py` and `test_fx_conversion.py`.
+These corrections preserve the canonical accounting and FX methodology rather
+than bypassing validation in the selector.
+
+Database transaction/concurrency, crash recovery, and migration downgrade/
+re-upgrade behavior continue to run in existing PostgreSQL CI. No new database
+adapter, storage boundary, or migration is introduced by selection, so those
+checks protect the baseline rather than proving an unimplemented analytics
+adapter. The next increment is pure two-date rate/yield change composition.

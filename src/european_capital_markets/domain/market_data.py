@@ -352,6 +352,14 @@ _EXPECTED_OBSERVATION_FIELD: dict[
 }
 
 
+def expected_market_observation_field(series_type: MarketSeriesType) -> str:
+    """Return the governed level field for one canonical series family."""
+
+    if not isinstance(series_type, MarketSeriesType):
+        raise TypeError("series_type must be a MarketSeriesType.")
+    return _EXPECTED_OBSERVATION_FIELD[series_type]
+
+
 def validate_market_series_bundle(
     market_series: tuple[MarketSeriesRecord, ...],
     fx_reference_rates: tuple[
@@ -586,9 +594,7 @@ def validate_market_data_bundle(
                 f"{observation.subject_id!r}"
             ) from exc
 
-        expected_field = _EXPECTED_OBSERVATION_FIELD[
-            series.series_type
-        ]
+        expected_field = expected_market_observation_field(series.series_type)
 
         if observation.field_name != expected_field:
             raise ValueError(
