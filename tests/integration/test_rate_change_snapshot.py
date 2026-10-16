@@ -196,12 +196,12 @@ def _cleanup(engine: Engine) -> None:
 def test_persisted_decimal_lineage_and_calculation_round_trip(engine, prior, current):
     dataset = _seed(engine, prior, current)
     expected = calculate_rate_change(dataset, REQUEST)
+    stored_before = load_canonical_dataset(engine)
     result = calculate_rate_change_from_database(engine, REQUEST)
     assert result == expected
     assert result.status is RateChangeStatus.CALCULATED
-    assert (
-        load_canonical_dataset(engine) == dataset
-    )  # No canonical writes by analytics.
+    # Preserve any other valid canonical records already in the test database.
+    assert load_canonical_dataset(engine) == stored_before
     for original, endpoint in zip(
         dataset.observations, (result.prior, result.current), strict=True
     ):
