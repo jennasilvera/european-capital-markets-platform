@@ -622,4 +622,5 @@ complete result replay, and correction/release boundaries. The pure codec and
 offline replay verifier are implemented; archive publication remains deferred.
 Database-to-bundle capture now retains the exact acquired full dataset and
 composes pure creation after the read transaction closes. The next increment
-is an archival backend contract review before storage/publication implementation.
+implements the [reviewed PostgreSQL archive contract](analytical_archive.md),
+with immutable publication and guarded migration before any release workflow.
