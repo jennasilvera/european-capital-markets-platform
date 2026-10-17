@@ -620,5 +620,6 @@ The [durable analytical bundle contract](analytical_bundles.md) now specifies
 full acquired-dataset retention, strict lossless encoding, execution identity,
 complete result replay, and correction/release boundaries. The pure codec and
 offline replay verifier are implemented; archive publication remains deferred.
-The next increment is database-to-bundle capture over one acquired dataset,
-before choosing and testing an archival backend.
+Database-to-bundle capture now retains the exact acquired full dataset and
+composes pure creation after the read transaction closes. The next increment
+is an archival backend contract review before storage/publication implementation.
