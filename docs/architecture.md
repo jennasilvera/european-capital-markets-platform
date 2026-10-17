@@ -161,4 +161,6 @@ of the full acquired canonical dataset with its request, complete outcome, and
 execution identity. Replay requires strict lossless decoding and recomputation;
 result lineage alone cannot establish candidate completeness. The pure codec and
 offline replay verifier are implemented with strict format/resource limits.
-Database capture, archive publication, and release records remain unimplemented.
+Database capture now retains and computes over one full reader snapshot; its
+pure encoding/replay remains separate from I/O. Archive publication and release
+records remain unimplemented.

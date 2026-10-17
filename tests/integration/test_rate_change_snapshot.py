@@ -1,8 +1,10 @@
-"""Real PostgreSQL writer -> snapshot reader -> selection -> calculation seams."""
+"""Real PostgreSQL snapshot -> calculation/bundle -> offline replay seams."""
 
 from __future__ import annotations
 
+import hashlib
 import os
+import platform
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
@@ -21,6 +23,13 @@ from european_capital_markets.analytics import (
     RateChangeStatus,
     SelectionBlockReason,
     calculate_rate_change,
+)
+from european_capital_markets.analytics.bundles import (
+    BundleError,
+    ExecutionIdentity,
+    create_rate_change_bundle,
+    encode_bundle,
+    verify_bundle,
 )
 from european_capital_markets.domain.dataset import CanonicalDataset
 from european_capital_markets.domain.lineage import (
@@ -44,6 +53,7 @@ from european_capital_markets.domain.taxonomy import (
 from european_capital_markets.persistence import (
     MarketObservationAppendStatus,
     calculate_rate_change_from_database,
+    create_rate_change_bundle_from_database,
     load_canonical_dataset,
     persist_canonical_dataset,
     persist_market_observation_batch,
@@ -156,7 +166,9 @@ def engine() -> Iterator[Engine]:
     database_engine = sa.create_engine(
         DATABASE_URL,
         pool_pre_ping=True,
-        connect_args={"options": "-c statement_timeout=10000 -c lock_timeout=5000"},
+        connect_args={
+            "options": "-c statement_timeout=10000 -c lock_timeout=5000 -c timezone=UTC"
+        },
     )
     _cleanup(database_engine)
     try:
@@ -239,6 +251,8 @@ def test_database_missing_and_conflicting_states_produce_explicit_block(engine):
 def _read_during(
     engine: Engine,
     action: Callable[[dict], None],
+    *,
+    acquire: Callable[[], object] | None = None,
 ):
     """Pause a real reconstruction after a relation read, with bounded events.
 
@@ -275,7 +289,11 @@ def _read_during(
     def read():
         nonlocal reader_ident
         reader_ident = get_ident()
-        return calculate_rate_change_from_database(engine, REQUEST)
+        return (
+            acquire()
+            if acquire is not None
+            else calculate_rate_change_from_database(engine, REQUEST)
+        )
 
     sa.event.listen(engine, "begin", begin)
     sa.event.listen(engine, "after_cursor_execute", after_execute)
@@ -387,3 +405,238 @@ def test_structurally_storable_but_invalid_unit_fails_reconstruction_validation(
     assert calculate_rate_change_from_database(
         engine, REQUEST
     ) == calculate_rate_change(dataset, REQUEST)
+
+
+SOURCE_ARTIFACT = b"synthetic database-capture source artifact"
+LOCK_ARTIFACT = b"synthetic database-capture dependency lock"
+
+
+def _execution():
+    return ExecutionIdentity(
+        "a" * 40,
+        hashlib.sha256(SOURCE_ARTIFACT).hexdigest(),
+        hashlib.sha256(LOCK_ARTIFACT).hexdigest(),
+        platform.python_implementation(),
+        platform.python_version(),
+        True,
+    )
+
+
+def _replay(content):
+    return verify_bundle(
+        content,
+        expected_sha256=hashlib.sha256(content).hexdigest(),
+        execution=_execution(),
+        source_artifact=SOURCE_ARTIFACT,
+        lock_artifact=LOCK_ARTIFACT,
+    )
+
+
+@pytest.mark.parametrize(
+    "prior,current",
+    [
+        ("2.400", "2.5500"),
+        (
+            "123456789012345678901234567890123456789.01",
+            "123456789012345678901234567890123456789.02",
+        ),
+    ],
+)
+def test_database_bundle_retains_full_dataset_and_replays_after_transaction_close(
+    engine, prior, current
+):
+    seeded = _seed(engine, prior, current)
+    unrelated = _batch(3, ((date(2026, 10, 14), "2.25", VerificationState.PENDING),))
+    persist_market_observation_batch(engine, unrelated)
+    snapshot = load_canonical_dataset(engine)
+    expected = create_rate_change_bundle(snapshot, REQUEST, _execution())
+    connections = set()
+    transactions = []
+
+    def begin(connection):
+        connections.add(connection)
+        transactions.append(connection)
+
+    def end(connection):
+        connections.discard(connection)
+
+    sa.event.listen(engine, "begin", begin)
+    sa.event.listen(engine, "commit", end)
+    sa.event.listen(engine, "rollback", end)
+    try:
+        captured = create_rate_change_bundle_from_database(
+            engine, REQUEST, _execution()
+        )
+        assert len(transactions) == 1 and not connections
+        content = encode_bundle(captured)
+        assert content == encode_bundle(expected)
+        # All source/evidence/observation records remain, even outside endpoints.
+        assert unrelated.observations[0] in captured.dataset.observations
+        assert unrelated.sources[0] in captured.dataset.sources
+        for original, endpoint in zip(
+            seeded.observations,
+            (captured.result.prior, captured.result.current),
+            strict=True,
+        ):
+            retained = endpoint.lineage_observations[0]
+            assert retained.value.as_tuple() == original.value.as_tuple()
+            assert retained.evidence_ids == original.evidence_ids
+        assert _replay(content) == captured
+        # Encoding and replay must not acquire another transaction.
+        assert len(transactions) == 1 and not connections
+    finally:
+        sa.event.remove(engine, "begin", begin)
+        sa.event.remove(engine, "commit", end)
+        sa.event.remove(engine, "rollback", end)
+    assert load_canonical_dataset(engine) == snapshot  # Capture made no writes.
+
+
+@pytest.mark.parametrize("new_value", ["2.55000", "2.65"])
+def test_database_bundle_snapshot_and_offline_replay_survive_later_append(
+    engine, new_value
+):
+    _seed(engine)
+    before = create_rate_change_bundle_from_database(engine, REQUEST, _execution())
+    before_bytes = encode_bundle(before)
+    appended = _batch(2, ((CURRENT, new_value, VerificationState.PRIMARY_VERIFIED),))
+
+    def append(details):
+        assert persist_market_observation_batch(engine, appended) is (
+            MarketObservationAppendStatus.INSERTED
+        )
+        with engine.connect() as connection:
+            assert (
+                connection.exec_driver_sql("SELECT pg_backend_pid()").scalar_one()
+                != (details["pid"])
+            )
+
+    during = _read_during(
+        engine,
+        append,
+        acquire=lambda: create_rate_change_bundle_from_database(
+            engine, REQUEST, _execution()
+        ),
+    )
+    assert encode_bundle(during) == before_bytes
+    after = create_rate_change_bundle_from_database(engine, REQUEST, _execution())
+    assert len(after.result.current.candidate_observation_ids) == 2
+    assert appended.observations[0] in after.dataset.observations
+    assert appended.observations[0] not in during.dataset.observations
+    assert len(after.result.current.supporting_observation_ids) == (
+        2 if new_value == "2.55000" else 0
+    )
+    assert after.result.status is (
+        RateChangeStatus.CALCULATED
+        if new_value == "2.55000"
+        else RateChangeStatus.BLOCKED
+    )
+    assert _replay(encode_bundle(after)) == after
+    assert encode_bundle(_replay(before_bytes)) == before_bytes
+
+
+def test_database_bundle_retains_missing_and_conflicting_diagnostics(engine):
+    snapshot = _batch(
+        1,
+        (
+            (PRIOR, None, VerificationState.UNAVAILABLE),
+            (CURRENT, "2.55", VerificationState.PRIMARY_VERIFIED),
+            (CURRENT, "2.65", VerificationState.PENDING),
+        ),
+    )
+    persist_canonical_dataset(engine, snapshot)
+    captured = create_rate_change_bundle_from_database(engine, REQUEST, _execution())
+    assert captured.result.block_reasons == (
+        RateChangeBlockReason.CURRENT_SELECTION_BLOCKED,
+        RateChangeBlockReason.PRIOR_SELECTION_BLOCKED,
+    )
+    assert captured.result.prior.lineage_observations[0].missing_state is (
+        MissingDataState.UNAVAILABLE
+    )
+    assert captured.result.current.block_reasons == (
+        SelectionBlockReason.CONFLICTING_VALUES,
+    )
+    assert _replay(encode_bundle(captured)) == captured
+
+
+def test_database_bundle_connection_loss_returns_no_bundle_then_explicit_call_recovers(
+    engine,
+):
+    _seed(engine)
+    before = create_rate_change_bundle_from_database(engine, REQUEST, _execution())
+
+    def disconnect(details):
+        with engine.connect() as connection:
+            assert connection.execute(
+                sa.text("SELECT pg_terminate_backend(:pid, 5000)"),
+                {"pid": details["pid"]},
+            ).scalar_one()
+
+    with pytest.raises(DBAPIError):
+        _read_during(
+            engine,
+            disconnect,
+            acquire=lambda: create_rate_change_bundle_from_database(
+                engine, REQUEST, _execution()
+            ),
+        )
+    after = create_rate_change_bundle_from_database(engine, REQUEST, _execution())
+    assert encode_bundle(after) == encode_bundle(before)
+
+
+def test_database_bundle_codec_failure_leaves_database_unchanged(engine):
+    _seed(engine)
+    # Valid canonical source metadata exceeding the separately governed wire limit.
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text("UPDATE sources SET notes = :notes WHERE source_id = :id"),
+            {"notes": "x" * 262145, "id": SOURCE_IDS[0]},
+        )
+    snapshot = load_canonical_dataset(engine)
+    with pytest.raises(BundleError, match="oversized string"):
+        create_rate_change_bundle_from_database(engine, REQUEST, _execution())
+    assert load_canonical_dataset(engine) == snapshot
+    with engine.begin() as connection:
+        connection.execute(
+            sa.text("UPDATE sources SET notes = NULL WHERE source_id = :id"),
+            {"id": SOURCE_IDS[0]},
+        )
+    assert (
+        _replay(
+            encode_bundle(
+                create_rate_change_bundle_from_database(engine, REQUEST, _execution())
+            )
+        ).result.status
+        is RateChangeStatus.CALCULATED
+    )
+
+
+def test_database_bundle_rejects_named_zone_without_changing_existing_calculation(
+    engine,
+):
+    _seed(engine)
+    zoned_engine = sa.create_engine(
+        DATABASE_URL,
+        connect_args={
+            "options": (
+                "-c timezone=Europe/Paris -c statement_timeout=10000 "
+                "-c lock_timeout=5000"
+            )
+        },
+    )
+    try:
+        assert calculate_rate_change_from_database(zoned_engine, REQUEST).status is (
+            RateChangeStatus.CALCULATED
+        )
+        with pytest.raises(BundleError, match="fixed-offset"):
+            create_rate_change_bundle_from_database(zoned_engine, REQUEST, _execution())
+    finally:
+        zoned_engine.dispose()
+    # A later explicit acquisition using a supported session still succeeds.
+    assert (
+        _replay(
+            encode_bundle(
+                create_rate_change_bundle_from_database(engine, REQUEST, _execution())
+            )
+        ).result.status
+        is RateChangeStatus.CALCULATED
+    )

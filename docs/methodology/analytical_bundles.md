@@ -4,8 +4,9 @@
 
 This document specifies the next boundary after coherent PostgreSQL rate-change
 composition. The pure lossless codec and offline replay verifier are now
-implemented for the existing rate-change method. Archive publication, database
-capture, release storage, and historical queries remain unimplemented. Canonical
+implemented for the existing rate-change method. Database capture
+also composes the reader with pure bundle creation. Archive publication, release
+storage, and historical queries remain unimplemented. Canonical
 storage and existing calculation APIs are unchanged.
 
 A bundle retains one complete validated `CanonicalDataset`, one
@@ -29,7 +30,7 @@ series. Reconstructing a reduced dataset from result lineage would require a
 separately designed completeness/closure contract. Do not silently introduce one.
 
 Both endpoints must be calculated from the very dataset retained in the bundle.
-The future capture path owns acquisition once and invokes the pure calculator;
+The database capture path owns acquisition once and invokes the pure calculator;
 it must not call the current database calculation adapter and then load another
 dataset for archival. Reader transaction closure remains before calculation and
 encoding. No database transaction spans archival I/O.
@@ -163,8 +164,9 @@ Economic-date replay remains distinct from unsupported known-at reconstruction.
 ## Dependency and acceptance matrix
 
 The codec, decoder, replay, and integrity rows are implemented and exercised by
-`tests/unit/test_analytical_bundles.py`. Database capture, archive, and release
-rows remain future acceptance requirements; they are not implemented coverage.
+`tests/unit/test_analytical_bundles.py`. The capture row is now covered by real
+PostgreSQL composition/concurrency tests in `tests/integration/test_rate_change_snapshot.py`.
+Archive and release rows remain future acceptance requirements.
 
 | Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -188,8 +190,10 @@ those guarantees.
 
 The pure codec and replay increment introduces no archival writes, release
 state machine, canonical migrations, identifiers, or additional formulas.
-The next increment is database-to-bundle capture using exactly one retained
-reader dataset; archival backend selection/publication follows separately.
+Database-to-bundle capture now uses exactly one retained reader dataset.
+The next increment is an archival backend contract review before publication
+implementation, including immutable naming, atomic visibility, durability,
+concurrency, and failed-publication recovery.
 
 
 ## Implemented v1 API and limits
@@ -223,7 +227,8 @@ loaded deployment. The caller must establish that the artifact corresponds to
 the declared commit and the running code/environment. Successful replay is
 conditional on that attestation. Arbitrary matching artifact bytes alone cannot
 prove historical execution. The pure API makes no durable environment-retention
-claim and performs no filesystem, database, provider, or network access.
+claim and performs no filesystem, database, provider, or network access. The
+separate persistence capture API below owns database acquisition.
 
 The v1 registry explicitly enumerates record types/fields and enum types; wire
 tags never cause imports or class lookup outside it. Enum payloads use exact
@@ -267,3 +272,74 @@ patch-version token for runtime replay. No database behavior is inferred from
 these tests. A forbidden-catalog monkeypatch checks only that current catalog
 loading is not used during replay; limit monkeypatches exercise smaller versions
 of the same enforced budgets, with actual scalar/depth boundary cases as well.
+
+
+## PostgreSQL-to-bundle capture
+
+`create_rate_change_bundle_from_database(engine, request, execution)` is exported
+from `european_capital_markets.persistence`. It rejects invalid request/execution
+argument types before acquisition, calls `load_canonical_dataset` once, and
+passes that very full dataset to `create_rate_change_bundle`. It does not call
+the calculation-only database adapter and reload content afterward. Both the
+retained graph and computed outcome therefore come from one read-only,
+repeatable-read transaction. That transaction closes before pure calculation
+and codec validation. No filtered snapshot, canonical write, migration, release
+record, automatic retry, archival I/O, or database-to-archive transaction is added.
+
+The returned value is a frozen `RateChangeBundle`, not an archive receipt or an
+encoded byte/digest pair. Use the existing pure encoder and retain the expected
+hash separately; replay still requires the existing execution declaration and
+source/build and lock artifacts. Capture does not load or attest those artifacts.
+A bundle remains subject to the full dataset/codec limits, including unrelated
+records. A valid database snapshot can fail bundle encoding; it must not be
+silently sliced, normalized, or returned with incomplete lineage to fit v1.
+
+### Timestamp compatibility and engine ownership
+
+The caller owns Engine/session configuration. With the supported psycopg driver,
+`TimeZone=UTC` yields fixed-offset returned timestamps compatible with v1. For
+example, set `connect_args={"options": "-c timezone=UTC"}` when creating the
+Engine, alongside any other required connection settings. The adapter does not
+change session timezone, normalize timestamp objects, or mutate engine settings.
+Psycopg can return `ZoneInfo` objects for other session names, including named
+UTC aliases; those are outside the v1 wire format and cause `BundleError` if
+present anywhere in the acquired dataset. The ordinary calculation-only adapter
+continues to support its existing domain-valid inputs.
+
+PostgreSQL `timestamptz` retains instants rather than the originally submitted
+timezone object/name or fold. Capture preserves the dataset reconstructed by the
+reader under the caller's session configuration, not a Python object supplied to
+an earlier database writer. The codec's preservation of offset/name/fold applies
+to those acquired records. Supporting arbitrary named-zone objects would require
+a separately reviewed encoding/version and timezone-rule identity contract.
+
+### Failure and dependency verification
+
+Acquisition/reconstruction/domain failures propagate unchanged. Pure calculation
+or codec failures also propagate, without a second read, cached fallback, retry,
+or partial bundle. `BLOCKED` is retained only after successful acquisition and
+bundle validation. A caller may explicitly invoke capture again after correcting
+a dependency or choosing a supported session; that new call acquires new content.
+
+| Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
+| --- | --- | --- | --- | --- | --- | --- |
+| Capture | Reader, PostgreSQL, pure creator | Exactly one full coherent dataset retained and calculated | Second read or candidate-only retention | One reader transaction; complete records, Decimal scale and lineage order retained | PostgreSQL composition | Real database/writer/reader/codec/calculator |
+| Capture/replay | Concurrent append and MVCC | In-flight graph excludes later commit; later capture sees it | Equal support or conflicting value commits between relation/observation queries | Old bytes replay unchanged; new bundle retains complete append and updated outcome | PostgreSQL concurrency and replay | Real independent connections, timing events only |
+| Capture | Missingness/conflict selection | Diagnostic blocked bundle is valid retained output | Missing prior plus conflicting current | Both endpoint reasons and original missingness replay | PostgreSQL composition | Real selector/codec/calculator |
+| Acquisition | PostgreSQL session/pool | No bundle after connection loss | Own reader backend terminated | Propagate DBAPI error; explicit later call succeeds | PostgreSQL fault/recovery | Real backend termination |
+| Bundle validation | Full acquired source metadata and codec limits | Canonical validity is not wire representability | Oversized valid source notes | Codec error, unchanged database, no truncation; explicit call after repair succeeds | PostgreSQL composition | Real SQL fault/reader/codec |
+| Timestamp compatibility | Driver and caller session timezone | Preserve acquired objects, enforce v1 support | Named-zone datetimes from Europe/Paris session | Codec rejection while calculation-only API still succeeds; UTC capture succeeds | PostgreSQL driver composition | Real psycopg/database/codec |
+| Error routing | Arguments, reader, pure creator | No I/O on invalid types; no fallback/reacquisition | Invalid arguments, reader exception, creator exception | Original error identity propagates and forbidden downstream work never runs | Unit | Mocked dependencies for routing only |
+
+Eight new integration cases share the existing scoped synthetic fixtures and
+bounded event/thread coordination. They retain an out-of-endpoint pending
+observation and its source/evidence rather than reconstructing a candidate slice.
+Actual server isolation/read-only settings and exactly one transaction are
+checked during concurrent capture. Encoding and replay start after acquisition
+and cause no additional engine transactions. Equal and conflicting appends both
+produce complete later bundles; earlier bytes continue to replay. Full codec
+error and named-zone tests exercise the real driver and serializer. Existing
+reader/domain corruption tests remain the shared reconstruction-validation
+baseline. Five new unit cases prove routing only, not transactional behavior.
+The existing CI integration job runs the real PostgreSQL cases both before and
+after migration downgrade/re-upgrade; local skips are not database evidence.

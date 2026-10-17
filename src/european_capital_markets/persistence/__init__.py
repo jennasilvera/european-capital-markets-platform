@@ -2,6 +2,7 @@
 
 from european_capital_markets.persistence.analytics import (
     calculate_rate_change_from_database,
+    create_rate_change_bundle_from_database,
 )
 from european_capital_markets.persistence.id_allocation import (
     allocate_market_lineage_ids,
@@ -34,6 +35,7 @@ __all__ = [
     "allocate_market_lineage_ids",
     "calculate_rate_change_from_database",
     "create_market_ingestion_run",
+    "create_rate_change_bundle_from_database",
     "load_canonical_dataset",
     "load_market_ingestion_run",
     "mark_market_ingestion_run_persisted",
