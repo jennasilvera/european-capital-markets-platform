@@ -608,17 +608,17 @@ existing PostgreSQL CI job discovers these tests and reruns them after the
 migration downgrade/re-upgrade cycle. The full-dataset reader's memory and
 query cost remain unchanged; this is not yet a scaled analytical query service.
 
-The next justified increment is a design review of durable analytical bundles:
-lossless serialization, complete input/candidate retention, methodology identity,
-versioning, correction relationships, and release boundaries. Freeze those
-contracts before implementing archival writes or claiming durable historical
-reproducibility. Broader market/transaction formulas remain separately reviewed
-work rather than an automatic consequence of adding this adapter.
+The subsequent durable bundle contract review below covers lossless
+serialization, complete input/candidate retention, methodology identity,
+versioning, correction relationships, and release boundaries. Archival writes
+and durable historical reproducibility remain deferred. Broader market/transaction
+formulas remain separately reviewed work.
 
 ## Durable Bundle Contract Review
 
 The [durable analytical bundle contract](analytical_bundles.md) now specifies
 full acquired-dataset retention, strict lossless encoding, execution identity,
-complete result replay, and correction/release boundaries. This is design only;
-no archive or codec is implemented. The next increment is a pure codec and
-replay verifier before choosing and testing an archival backend.
+complete result replay, and correction/release boundaries. The pure codec and
+offline replay verifier are implemented; archive publication remains deferred.
+The next increment is database-to-bundle capture over one acquired dataset,
+before choosing and testing an archival backend.

@@ -3,11 +3,10 @@
 ## Decision and implementation status
 
 This document specifies the next boundary after coherent PostgreSQL rate-change
-composition. It is a design contract, not an implemented codec, archive, release
-store, or historical query service. Existing APIs and canonical storage are
-unchanged. The first implementation should be a pure, lossless codec and replay
-verifier for the existing rate-change method; archival publication follows only
-after that boundary is tested.
+composition. The pure lossless codec and offline replay verifier are now
+implemented for the existing rate-change method. Archive publication, database
+capture, release storage, and historical queries remain unimplemented. Canonical
+storage and existing calculation APIs are unchanged.
 
 A bundle retains one complete validated `CanonicalDataset`, one
 `RateChangeRequest`, the complete computed `RateChangeResult`, and explicit
@@ -81,7 +80,7 @@ Schema defaults must never fill a missing archived field.
 | Integer / boolean | Distinct tags; booleans cannot pass as integers; no lossy JSON-number path |
 | String / null | Preserve exact Unicode content and explicit null; no trimming or Unicode normalization |
 | Date | Tagged strict ISO calendar date; reject datetime substitution |
-| Datetime | Distinct tag preserving wall-clock components, microseconds, numeric UTC offset and fold; v1 supports naive values or fixed-offset `datetime.timezone` only, rejecting other tzinfo classes rather than discarding zone identity |
+| Datetime | Distinct tag preserving wall-clock components, microseconds, numeric UTC offset, timezone name, and fold; v1 supports naive values or fixed-offset `datetime.timezone` only, rejecting other tzinfo classes rather than discarding zone identity |
 | Enum | Explicit approved enum type and member value, not an untyped string |
 | Record / collection | Explicit approved record type and every field; collections are ordered arrays with duplicates rejected where canonical validation requires uniqueness |
 
@@ -163,7 +162,9 @@ Economic-date replay remains distinct from unsupported known-at reconstruction.
 
 ## Dependency and acceptance matrix
 
-These are future acceptance requirements, not claims of existing test coverage.
+The codec, decoder, replay, and integrity rows are implemented and exercised by
+`tests/unit/test_analytical_bundles.py`. Database capture, archive, and release
+rows remain future acceptance requirements; they are not implemented coverage.
 
 | Component | Dependency | Contract | Failure mode | Expected behavior | Test level | Real or mocked |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -185,6 +186,84 @@ Existing tests already prove selector order independence and PostgreSQL snapshot
 coherence; new tests should target retention/replay seams rather than duplicate
 those guarantees.
 
-The next implementation increment is the pure codec plus replay verifier, with
-explicit limits and golden fixtures. It introduces no archival writes, release
+The pure codec and replay increment introduces no archival writes, release
 state machine, canonical migrations, identifiers, or additional formulas.
+The next increment is database-to-bundle capture using exactly one retained
+reader dataset; archival backend selection/publication follows separately.
+
+
+## Implemented v1 API and limits
+
+Public functions live in `european_capital_markets.analytics.bundles`:
+
+| API | Guarantee |
+| --- | --- |
+| `create_rate_change_bundle(dataset, request, execution)` | Real calculation over the supplied dataset; retains all records and rejects content outside the codec boundary |
+| `encode_bundle(bundle)` | Strict typed canonical bytes, not certification of a caller-built result |
+| `decode_bundle(content, expected_sha256=...)` | Integrity/canonical-wire checks, closed reconstruction, and complete canonical dataset validation; not result replay certification |
+| `verify_bundle(content, expected_sha256=..., execution=..., source_artifact=..., lock_artifact=...)` | Matching execution declaration/artifact hashes, real recomputation, and full result encoding comparison |
+
+A separately retained descriptor must carry `sha256` and the expected lowercase
+hex digest from `hashlib.sha256(content).hexdigest()`. The API does not create or
+persist a descriptor, allocate a bundle ID, or imply authenticity. Replacing both
+content and descriptor is outside its integrity guarantee.
+
+`ExecutionIdentity` requires a full lowercase 40-character Git commit, two
+SHA-256 digests, exact Python implementation/patch version, a true clean-tree
+attestation, and the three current analytical policies. Unsupported identities
+raise `ReplayUnavailableError`; malformed wire, integrity, or replay mismatch
+raise `BundleError`. Domain validation failures on decoded datasets are wrapped
+in `BundleError`. Capture's calculation/domain errors retain their existing API
+behavior. Analytical blocked results remain ordinary retained outcomes.
+
+The verifier compares the supplied execution identity with the retained one and
+hashes supplied source/build and lock bytes. It does not inspect Git, execute an
+artifact, install dependencies, launch a historical interpreter, or attest the
+loaded deployment. The caller must establish that the artifact corresponds to
+the declared commit and the running code/environment. Successful replay is
+conditional on that attestation. Arbitrary matching artifact bytes alone cannot
+prove historical execution. The pure API makes no durable environment-retention
+claim and performs no filesystem, database, provider, or network access.
+
+The v1 registry explicitly enumerates record types/fields and enum types; wire
+tags never cause imports or class lookup outside it. Enum payloads use exact
+member values, including integer `SourceTier` values. Every record field is
+required. Dataclass annotations are checked with exact runtime types, including
+bool versus int, tuple element types, and date versus datetime. Added fields
+cannot silently enter the format. A future change to annotations or enum meaning
+requires schema review/versioning, even if field names are unchanged.
+
+Limits are fixed by v1, applied on encoding and decoding, and cannot be supplied
+by an import request:
+
+| Limit | Maximum |
+| --- | --- |
+| Content bytes | 8 MiB, checked before JSON parsing and public import hashing |
+| JSON container nesting | 64, checked before parsing with strings/escapes respected |
+| Logical tagged-value nesting | 64 |
+| Tagged-value occurrences | 200,000 |
+| Record occurrences | 20,000, including repeated records in nested result lineage |
+| String length | 262,144 Unicode code points, valid UTF-8 only |
+| Decimal coefficient | 4,096 digits |
+| Integer token/value | 256 base-10 digits, excluding sign |
+
+Byte/nesting limits bound parser allocation before reconstruction; tagged-node,
+record, and string limits are enforced during reconstruction and re-encoding.
+These limits reject large datasets rather than streaming or slicing them. The
+full-dataset reader cost remains unchanged. A descriptor's expected digest is a
+required argument; a caller must not treat hashing untrusted bytes themselves
+as establishing their provenance.
+
+The tests use real codecs, domain validation, selector, Decimal, and calculator.
+They retain all canonical record families, scalar variants, timestamp names and
+folds, transitive inputs, unrelated records, excluded equal candidates, source
+order, and original Decimal scale/sign. They reject malformed/duplicate fields,
+future versions, unsupported values, over-limit content, changed results and
+removed conflicting candidates. Exact hand-specified scalar bytes, an independently
+specified empty-dataset fixture, and a complete blocked bundle fixture freeze
+wire examples and SHA-256 digests. The latter pins CPython 3.12.12; the test
+verifies its fixed digest before substituting only the current supported Python
+patch-version token for runtime replay. No database behavior is inferred from
+these tests. A forbidden-catalog monkeypatch checks only that current catalog
+loading is not used during replay; limit monkeypatches exercise smaller versions
+of the same enforced budgets, with actual scalar/depth boundary cases as well.

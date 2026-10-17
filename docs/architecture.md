@@ -159,5 +159,6 @@ historical knowledge-time reconstruction.
 The [bundle contract review](methodology/analytical_bundles.md) specifies retention
 of the full acquired canonical dataset with its request, complete outcome, and
 execution identity. Replay requires strict lossless decoding and recomputation;
-result lineage alone cannot establish candidate completeness. This is a design
-boundary: codecs, archive publication, and release records remain unimplemented.
+result lineage alone cannot establish candidate completeness. The pure codec and
+offline replay verifier are implemented with strict format/resource limits.
+Database capture, archive publication, and release records remain unimplemented.
