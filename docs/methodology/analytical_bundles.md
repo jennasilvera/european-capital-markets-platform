@@ -191,9 +191,11 @@ those guarantees.
 The pure codec and replay increment introduces no archival writes, release
 state machine, canonical migrations, identifiers, or additional formulas.
 Database-to-bundle capture now uses exactly one retained reader dataset.
-The next increment is an archival backend contract review before publication
-implementation, including immutable naming, atomic visibility, durability,
-concurrency, and failed-publication recovery.
+The [archival backend contract](analytical_archive.md) now selects PostgreSQL
+for atomic retention of bundle bytes, execution artifacts, and a receipt
+descriptor. It defines immutable publication, uncertain-outcome retry, durability
+limits, and acceptance coverage. That archive remains unimplemented; implementing
+the guarded migration, publisher, and verified byte loader is the next increment.
 
 
 ## Implemented v1 API and limits

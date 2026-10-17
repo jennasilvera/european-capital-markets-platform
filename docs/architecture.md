@@ -164,3 +164,11 @@ offline replay verifier are implemented with strict format/resource limits.
 Database capture now retains and computes over one full reader snapshot; its
 pure encoding/replay remains separate from I/O. Archive publication and release
 records remain unimplemented.
+
+## Analytical Archive Backend Decision
+
+The [archive backend contract](methodology/analytical_archive.md) selects a
+single logged PostgreSQL row for each immutable bundle, execution artifact,
+lock artifact, and receipt descriptor. This is design only. The migration,
+publisher, verified byte loader, and concurrency/recovery tests are the next
+implementation increment; release approval remains separate.
